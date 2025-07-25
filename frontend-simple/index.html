@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MACAL Inventory System</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // API configuration
+        const API_URL = 'http://localhost:3001/api/v1';
+        let authToken = localStorage.getItem('authToken');
+
+        // Axios interceptor
+        axios.interceptors.request.use(config => {
+            if (authToken) {
+                config.headers.Authorization = `Bearer ${authToken}`;
+            }
+            return config;
+        });
+
+        // Components
+        const LoginForm = ({ onLogin }) => {
+            const [email, setEmail] = useState('demo@macal.cl');
+            const [password, setPassword] = useState('demo123');
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+
+                try {
+                    const response = await axios.post(`${API_URL}/auth/login`, { email, password });
+                    authToken = response.data.token;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('userPermissions', JSON.stringify(response.data.user.permissions));
+                    onLogin(response.data.user);
+                } catch (err) {
+                    setError('Credenciales inválidas');
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                    <div className="max-w-md w-full space-y-8">
+                        <div>
+                            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                                MACAL Inventory System
+                            </h2>
+                        </div>
+                        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+                            {error && (
+                                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                                    {error}
+                                </div>
+                            )}
+                            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded text-sm">
+                                <p className="font-semibold mb-2">Usuarios de prueba:</p>
+                                <p>• <strong>Administrador:</strong> demo@macal.cl / demo123</p>
+                                <p>• <strong>Líder:</strong> lider@macal.cl / demo123</p>
+                                <p>• <strong>Inspector:</strong> inspector@macal.cl / demo123</p>
+                                <p>• <strong>Cliente:</strong> cliente@santander.cl / demo123</p>
+                            </div>
+                            <div className="rounded-md shadow-sm -space-y-px">
+                                <div>
+                                    <input
+                                        type="email"
+                                        required
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                                        placeholder="Email"
+                                    />
+                                </div>
+                                <div>
+                                    <input
+                                        type="password"
+                                        required
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                                        placeholder="Contraseña"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                    {loading ? 'Iniciando sesión...' : 'Ingresar'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const VehicleList = () => {
+            const [vehicles, setVehicles] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showAddForm, setShowAddForm] = useState(false);
+            const [search, setSearch] = useState('');
+            const [statusFilter, setStatusFilter] = useState('');
+
+            const fetchVehicles = async () => {
+                try {
+                    const params = {};
+                    if (search) params.search = search;
+                    if (statusFilter) params.status = statusFilter;
+                    
+                    const response = await axios.get(`${API_URL}/vehicles`, { params });
+                    setVehicles(response.data);
+                } catch (error) {
+                    console.error('Error fetching vehicles:', error);
+                }
+                setLoading(false);
+            };
+
+            useEffect(() => {
+                fetchVehicles();
+            }, [search, statusFilter]);
+
+            const handleAddVehicle = async (vehicleData) => {
+                try {
+                    await axios.post(`${API_URL}/vehicles`, vehicleData);
+                    setShowAddForm(false);
+                    fetchVehicles();
+                } catch (error) {
+                    alert('Error al agregar vehículo');
+                }
+            };
+
+            const getStatusColor = (status) => {
+                const colors = {
+                    pending: 'bg-gray-100 text-gray-800',
+                    inspecting: 'bg-yellow-100 text-yellow-800',
+                    completed: 'bg-green-100 text-green-800',
+                    delivered: 'bg-blue-100 text-blue-800'
+                };
+                return colors[status] || 'bg-gray-100 text-gray-800';
+            };
+
+            const getStatusText = (status) => {
+                const texts = {
+                    pending: 'Pendiente',
+                    inspecting: 'En Inspección',
+                    completed: 'Completado',
+                    delivered: 'Entregado'
+                };
+                return texts[status] || status;
+            };
+
+            if (loading) {
+                return <div className="flex justify-center p-8">Cargando vehículos...</div>;
+            }
+
+            return (
+                <div>
+                    <div className="mb-6 flex gap-4">
+                        <input
+                            type="text"
+                            placeholder="Buscar por patente, marca o modelo..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="flex-1 px-4 py-2 border rounded-lg"
+                        />
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="px-4 py-2 border rounded-lg"
+                        >
+                            <option value="">Todos los estados</option>
+                            <option value="pending">Pendiente</option>
+                            <option value="inspecting">En Inspección</option>
+                            <option value="completed">Completado</option>
+                            <option value="delivered">Entregado</option>
+                        </select>
+                        {JSON.parse(localStorage.getItem('userPermissions') || '{}').create_vehicles && (
+                            <button
+                                onClick={() => setShowAddForm(true)}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            >
+                                <i className="fas fa-plus mr-2"></i>
+                                Agregar Vehículo
+                            </button>
+                        )}
+                    </div>
+
+                    {vehicles.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                            No se encontraron vehículos
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {vehicles.map(vehicle => (
+                                <div key={vehicle.id} className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                            <h3 className="text-lg font-semibold">{vehicle.license_plate}</h3>
+                                            <p className="text-gray-600">{vehicle.make} {vehicle.model} {vehicle.year}</p>
+                                        </div>
+                                        <span className={`px-2 py-1 rounded text-xs ${getStatusColor(vehicle.status)}`}>
+                                            {getStatusText(vehicle.status)}
+                                        </span>
+                                    </div>
+                                    <div className="space-y-2 text-sm text-gray-600">
+                                        {vehicle.vin && <p>VIN: {vehicle.vin}</p>}
+                                        <p>Color: {vehicle.color}</p>
+                                        <p>Kilometraje: {vehicle.mileage?.toLocaleString()} km</p>
+                                        <p>Ingreso: {new Date(vehicle.check_in_date).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className="mt-4 flex gap-2">
+                                        <button className="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm">
+                                            Ver Detalles
+                                        </button>
+                                        <button 
+                                            onClick={() => window.location.href = `#inspection/${vehicle.id}`}
+                                            className="flex-1 px-3 py-2 bg-green-100 text-green-700 rounded hover:bg-green-200 text-sm"
+                                        >
+                                            Inspeccionar
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {showAddForm && (
+                        <AddVehicleModal
+                            onClose={() => setShowAddForm(false)}
+                            onSave={handleAddVehicle}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        const AddVehicleModal = ({ onClose, onSave }) => {
+            const [formData, setFormData] = useState({
+                license_plate: '',
+                vin: '',
+                make: '',
+                model: '',
+                year: new Date().getFullYear(),
+                color: '',
+                mileage: ''
+            });
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onSave({
+                    ...formData,
+                    year: parseInt(formData.year),
+                    mileage: parseInt(formData.mileage) || 0
+                });
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-lg max-w-md w-full p-6">
+                        <h2 className="text-xl font-bold mb-4">Agregar Vehículo</h2>
+                        <form onSubmit={handleSubmit}>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Patente *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={formData.license_plate}
+                                        onChange={(e) => setFormData({...formData, license_plate: e.target.value.toUpperCase()})}
+                                        className="w-full px-3 py-2 border rounded"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Marca *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={formData.make}
+                                            onChange={(e) => setFormData({...formData, make: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Modelo *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={formData.model}
+                                            onChange={(e) => setFormData({...formData, model: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Año</label>
+                                        <input
+                                            type="number"
+                                            value={formData.year}
+                                            onChange={(e) => setFormData({...formData, year: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Color</label>
+                                        <input
+                                            type="text"
+                                            value={formData.color}
+                                            onChange={(e) => setFormData({...formData, color: e.target.value})}
+                                            className="w-full px-3 py-2 border rounded"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">VIN</label>
+                                    <input
+                                        type="text"
+                                        value={formData.vin}
+                                        onChange={(e) => setFormData({...formData, vin: e.target.value})}
+                                        className="w-full px-3 py-2 border rounded"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Kilometraje</label>
+                                    <input
+                                        type="number"
+                                        value={formData.mileage}
+                                        onChange={(e) => setFormData({...formData, mileage: e.target.value})}
+                                        className="w-full px-3 py-2 border rounded"
+                                    />
+                                </div>
+                            </div>
+                            <div className="mt-6 flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                >
+                                    Guardar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const InspectionList = () => {
+            const [inspections, setInspections] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [vehicles, setVehicles] = useState([]);
+            const [showNewModal, setShowNewModal] = useState(false);
+            const [selectedInspection, setSelectedInspection] = useState(null);
+            const [showDetail, setShowDetail] = useState(false);
+
+            const fetchInspections = async () => {
+                try {
+                    const response = await axios.get(`${API_URL}/inspections`);
+                    setInspections(response.data);
+                } catch (error) {
+                    console.error('Error fetching inspections:', error);
+                }
+                setLoading(false);
+            };
+
+            const fetchVehicles = async () => {
+                try {
+                    const response = await axios.get(`${API_URL}/vehicles`);
+                    setVehicles(response.data);
+                } catch (error) {
+                    console.error('Error fetching vehicles:', error);
+                }
+            };
+
+            useEffect(() => {
+                fetchInspections();
+                fetchVehicles();
+            }, []);
+
+            const handleCreateInspection = async (vehicleId) => {
+                try {
+                    await axios.post(`${API_URL}/inspections`, {
+                        vehicle_id: vehicleId,
+                        type: 'entry'
+                    });
+                    setShowNewModal(false);
+                    fetchInspections();
+                } catch (error) {
+                    alert('Error al crear inspección');
+                }
+            };
+
+            const handleDeleteInspection = async (inspectionId) => {
+                if (!confirm('¿Está seguro de eliminar esta inspección?')) {
+                    return;
+                }
+
+                try {
+                    await axios.delete(`${API_URL}/inspections/${inspectionId}`);
+                    fetchInspections();
+                } catch (error) {
+                    if (error.response?.status === 403) {
+                        alert('No tiene permisos para eliminar inspecciones');
+                    } else {
+                        alert('Error al eliminar inspección');
+                    }
+                }
+            };
+
+            const getStatusColor = (status) => {
+                const colors = {
+                    draft: 'bg-gray-100 text-gray-800',
+                    in_progress: 'bg-yellow-100 text-yellow-800',
+                    completed: 'bg-green-100 text-green-800'
+                };
+                return colors[status] || 'bg-gray-100 text-gray-800';
+            };
+
+            const getStatusText = (status) => {
+                const texts = {
+                    draft: 'Borrador',
+                    in_progress: 'En Progreso',
+                    completed: 'Completada'
+                };
+                return texts[status] || status;
+            };
+
+            if (loading) {
+                return <div className="flex justify-center p-8">Cargando inspecciones...</div>;
+            }
+
+            return (
+                <div>
+                    <div className="mb-6 flex justify-between items-center">
+                        <h2 className="text-2xl font-bold">Inspecciones</h2>
+                        {JSON.parse(localStorage.getItem('userPermissions') || '{}').create_inspections && (
+                            <button
+                                onClick={() => setShowNewModal(true)}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            >
+                                <i className="fas fa-plus mr-2"></i>
+                                Nueva Inspección
+                            </button>
+                        )}
+                    </div>
+
+                    {inspections.length === 0 ? (
+                        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                            No hay inspecciones registradas
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-lg shadow overflow-hidden">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Vehículo
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Inspector
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Tipo
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Estado
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Fecha
+                                        </th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Acciones
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {inspections.map(inspection => (
+                                        <tr key={inspection.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div>
+                                                    <div className="text-sm font-medium text-gray-900">
+                                                        {inspection.license_plate}
+                                                    </div>
+                                                    <div className="text-sm text-gray-500">
+                                                        {inspection.make} {inspection.model}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="text-sm text-gray-900">{inspection.inspector_name}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="text-sm text-gray-900">
+                                                    {inspection.type === 'entry' ? 'Entrada' : 'Salida'}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(inspection.status)}`}>
+                                                    {getStatusText(inspection.status)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {new Date(inspection.started_at).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                <button 
+                                                    onClick={() => {
+                                                        setSelectedInspection(inspection);
+                                                        setShowDetail(true);
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-900 mr-3"
+                                                >
+                                                    Ver
+                                                </button>
+                                                <button 
+                                                    onClick={() => {
+                                                        setSelectedInspection(inspection);
+                                                        setShowDetail(true);
+                                                    }}
+                                                    className="text-green-600 hover:text-green-900"
+                                                >
+                                                    Continuar
+                                                </button>
+                                                {JSON.parse(localStorage.getItem('userPermissions') || '{}').delete_inspections && (
+                                                    <button 
+                                                        onClick={() => handleDeleteInspection(inspection.id)}
+                                                        className="text-red-600 hover:text-red-900 ml-3"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {showNewModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-lg max-w-md w-full p-6">
+                                <h2 className="text-xl font-bold mb-4">Nueva Inspección</h2>
+                                <div className="space-y-4">
+                                    <p className="text-gray-600">Seleccione un vehículo para inspeccionar:</p>
+                                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                                        {vehicles.filter(v => v.status !== 'delivered').map(vehicle => (
+                                            <button
+                                                key={vehicle.id}
+                                                onClick={() => handleCreateInspection(vehicle.id)}
+                                                className="w-full text-left p-3 border rounded hover:bg-gray-50"
+                                            >
+                                                <div className="font-semibold">{vehicle.license_plate}</div>
+                                                <div className="text-sm text-gray-600">
+                                                    {vehicle.make} {vehicle.model} {vehicle.year}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="mt-6 flex gap-3">
+                                    <button
+                                        onClick={() => setShowNewModal(false)}
+                                        className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showDetail && selectedInspection && (
+                        <InspectionDetail 
+                            inspection={selectedInspection}
+                            onClose={() => {
+                                setShowDetail(false);
+                                setSelectedInspection(null);
+                                fetchInspections();
+                            }}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        const InspectionDetail = ({ inspection, onClose }) => {
+            const [inspectionData, setInspectionData] = useState(inspection.data || {});
+            const [saving, setSaving] = useState(false);
+            const [activeSection, setActiveSection] = useState('exterior');
+
+            const sections = {
+                exterior: {
+                    title: 'Inspección Exterior',
+                    fields: [
+                        { id: 'carroceria', label: 'Carrocería', type: 'status' },
+                        { id: 'pintura', label: 'Pintura', type: 'status' },
+                        { id: 'vidrios', label: 'Vidrios', type: 'status' },
+                        { id: 'luces', label: 'Luces', type: 'status' },
+                        { id: 'neumaticos', label: 'Neumáticos', type: 'status' },
+                        { id: 'llantas', label: 'Llantas', type: 'status' }
+                    ]
+                },
+                interior: {
+                    title: 'Inspección Interior',
+                    fields: [
+                        { id: 'tapiceria', label: 'Tapicería', type: 'status' },
+                        { id: 'tablero', label: 'Tablero', type: 'status' },
+                        { id: 'controles', label: 'Controles', type: 'status' },
+                        { id: 'aire_ac', label: 'Aire Acondicionado', type: 'status' },
+                        { id: 'radio', label: 'Radio/Audio', type: 'status' },
+                        { id: 'cinturones', label: 'Cinturones de Seguridad', type: 'status' }
+                    ]
+                },
+                mecanico: {
+                    title: 'Inspección Mecánica',
+                    fields: [
+                        { id: 'motor', label: 'Motor', type: 'status' },
+                        { id: 'transmision', label: 'Transmisión', type: 'status' },
+                        { id: 'frenos', label: 'Frenos', type: 'status' },
+                        { id: 'suspension', label: 'Suspensión', type: 'status' },
+                        { id: 'direccion', label: 'Dirección', type: 'status' },
+                        { id: 'escape', label: 'Sistema de Escape', type: 'status' }
+                    ]
+                },
+                documentos: {
+                    title: 'Documentación',
+                    fields: [
+                        { id: 'titulo', label: 'Título de Propiedad', type: 'checkbox' },
+                        { id: 'registro', label: 'Registro Vehicular', type: 'checkbox' },
+                        { id: 'seguro', label: 'Seguro', type: 'checkbox' },
+                        { id: 'manual', label: 'Manual del Propietario', type: 'checkbox' },
+                        { id: 'llaves', label: 'Juego de Llaves Completo', type: 'checkbox' }
+                    ]
+                }
+            };
+
+            const handleFieldUpdate = async (fieldPath, value) => {
+                const updatedData = { ...inspectionData };
+                const keys = fieldPath.split('.');
+                let current = updatedData;
+                
+                for (let i = 0; i < keys.length - 1; i++) {
+                    if (!current[keys[i]]) {
+                        current[keys[i]] = {};
+                    }
+                    current = current[keys[i]];
+                }
+                
+                current[keys[keys.length - 1]] = value;
+                setInspectionData(updatedData);
+
+                // Auto-save to backend
+                try {
+                    await axios.post(`${API_URL}/inspections/${inspection.id}/update`, {
+                        path: fieldPath,
+                        value: value
+                    });
+                } catch (error) {
+                    console.error('Error updating inspection:', error);
+                }
+            };
+
+            const handleCompleteInspection = async () => {
+                setSaving(true);
+                try {
+                    await axios.put(`${API_URL}/inspections/${inspection.id}`, {
+                        status: 'completed',
+                        completed_at: new Date().toISOString()
+                    });
+                    onClose();
+                } catch (error) {
+                    alert('Error al completar inspección');
+                }
+                setSaving(false);
+            };
+
+            const getFieldValue = (fieldId) => {
+                return inspectionData[activeSection]?.[fieldId] || null;
+            };
+
+            const getCompletionPercentage = () => {
+                let totalFields = 0;
+                let completedFields = 0;
+
+                Object.keys(sections).forEach(sectionKey => {
+                    sections[sectionKey].fields.forEach(field => {
+                        totalFields++;
+                        if (inspectionData[sectionKey]?.[field.id]) {
+                            completedFields++;
+                        }
+                    });
+                });
+
+                return Math.round((completedFields / totalFields) * 100);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="p-6 border-b">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold">Inspección de Vehículo</h2>
+                                    <p className="text-gray-600">
+                                        {inspection.license_plate} - {inspection.make} {inspection.model}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={onClose}
+                                    className="text-gray-400 hover:text-gray-600"
+                                >
+                                    <i className="fas fa-times text-2xl"></i>
+                                </button>
+                            </div>
+                            <div className="mt-4">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm text-gray-600">Progreso de Inspección</span>
+                                    <span className="text-sm font-medium">{getCompletionPercentage()}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div 
+                                        className="bg-blue-600 h-2 rounded-full transition-all"
+                                        style={{ width: `${getCompletionPercentage()}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-1 overflow-hidden">
+                            <div className="w-64 bg-gray-50 p-4 overflow-y-auto">
+                                <h3 className="font-semibold mb-4">Secciones</h3>
+                                {Object.entries(sections).map(([key, section]) => (
+                                    <button
+                                        key={key}
+                                        onClick={() => setActiveSection(key)}
+                                        className={`w-full text-left p-3 rounded mb-2 transition-colors ${
+                                            activeSection === key
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-white hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        {section.title}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="flex-1 p-6 overflow-y-auto">
+                                <h3 className="text-xl font-semibold mb-6">
+                                    {sections[activeSection].title}
+                                </h3>
+                                <div className="space-y-4">
+                                    {sections[activeSection].fields.map(field => (
+                                        <div key={field.id} className="bg-gray-50 p-4 rounded">
+                                            <div className="flex items-center justify-between">
+                                                <label className="font-medium">{field.label}</label>
+                                                {field.type === 'status' ? (
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => handleFieldUpdate(`${activeSection}.${field.id}`, 'good')}
+                                                            className={`p-2 rounded ${
+                                                                getFieldValue(field.id) === 'good'
+                                                                    ? 'bg-green-500 text-white'
+                                                                    : 'bg-gray-200 text-gray-600 hover:bg-green-100'
+                                                            }`}
+                                                        >
+                                                            <i className="fas fa-check"></i>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleFieldUpdate(`${activeSection}.${field.id}`, 'warning')}
+                                                            className={`p-2 rounded ${
+                                                                getFieldValue(field.id) === 'warning'
+                                                                    ? 'bg-yellow-500 text-white'
+                                                                    : 'bg-gray-200 text-gray-600 hover:bg-yellow-100'
+                                                            }`}
+                                                        >
+                                                            <i className="fas fa-exclamation"></i>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleFieldUpdate(`${activeSection}.${field.id}`, 'bad')}
+                                                            className={`p-2 rounded ${
+                                                                getFieldValue(field.id) === 'bad'
+                                                                    ? 'bg-red-500 text-white'
+                                                                    : 'bg-gray-200 text-gray-600 hover:bg-red-100'
+                                                            }`}
+                                                        >
+                                                            <i className="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={getFieldValue(field.id) || false}
+                                                        onChange={(e) => handleFieldUpdate(`${activeSection}.${field.id}`, e.target.checked)}
+                                                        className="w-5 h-5"
+                                                    />
+                                                )}
+                                            </div>
+                                            {getFieldValue(field.id) && (
+                                                <div className="mt-2">
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Agregar comentario..."
+                                                        value={getFieldValue(`${field.id}_comment`) || ''}
+                                                        onChange={(e) => handleFieldUpdate(`${activeSection}.${field.id}_comment`, e.target.value)}
+                                                        className="w-full px-3 py-1 text-sm border rounded"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="mt-6">
+                                    <label className="font-medium block mb-2">Observaciones Generales</label>
+                                    <textarea
+                                        className="w-full p-3 border rounded"
+                                        rows="4"
+                                        placeholder="Agregar observaciones adicionales..."
+                                        value={inspectionData[activeSection]?.observations || ''}
+                                        onChange={(e) => handleFieldUpdate(`${activeSection}.observations`, e.target.value)}
+                                    ></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 border-t flex justify-between">
+                            <button
+                                onClick={onClose}
+                                className="px-6 py-2 border rounded hover:bg-gray-50"
+                            >
+                                Guardar y Cerrar
+                            </button>
+                            <button
+                                onClick={handleCompleteInspection}
+                                disabled={saving || getCompletionPercentage() < 100}
+                                className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                            >
+                                {saving ? 'Guardando...' : 'Completar Inspección'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const TemplateEditor = () => {
+            const [templates, setTemplates] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedTemplate, setSelectedTemplate] = useState(null);
+            const [showEditor, setShowEditor] = useState(false);
+            const [formName, setFormName] = useState('');
+            const [formType, setFormType] = useState('inspection');
+            const [formFields, setFormFields] = useState([]);
+
+            const fetchTemplates = async () => {
+                try {
+                    const response = await axios.get(`${API_URL}/form-templates`);
+                    setTemplates(response.data);
+                } catch (error) {
+                    console.error('Error fetching templates:', error);
+                }
+                setLoading(false);
+            };
+
+            useEffect(() => {
+                fetchTemplates();
+            }, []);
+
+            const handleAddField = (type) => {
+                const newField = {
+                    id: Date.now().toString(),
+                    type: type,
+                    label: 'Nuevo Campo',
+                    required: false,
+                    options: type === 'select' ? ['Opción 1', 'Opción 2'] : undefined
+                };
+                setFormFields([...formFields, newField]);
+            };
+
+            const handleUpdateField = (fieldId, updates) => {
+                setFormFields(formFields.map(field => 
+                    field.id === fieldId ? { ...field, ...updates } : field
+                ));
+            };
+
+            const handleRemoveField = (fieldId) => {
+                setFormFields(formFields.filter(field => field.id !== fieldId));
+            };
+
+            const handleSaveTemplate = async () => {
+                try {
+                    const config = {
+                        fields: formFields
+                    };
+                    
+                    await axios.post(`${API_URL}/form-templates`, {
+                        name: formName,
+                        type: formType,
+                        config: config
+                    });
+                    
+                    setShowEditor(false);
+                    setFormName('');
+                    setFormFields([]);
+                    fetchTemplates();
+                } catch (error) {
+                    alert('Error al guardar plantilla');
+                }
+            };
+
+            const fieldTypes = [
+                { type: 'text', icon: 'fa-font', label: 'Texto' },
+                { type: 'number', icon: 'fa-hashtag', label: 'Número' },
+                { type: 'select', icon: 'fa-list', label: 'Selección' },
+                { type: 'checkbox', icon: 'fa-check-square', label: 'Checkbox' },
+                { type: 'textarea', icon: 'fa-align-left', label: 'Texto Largo' },
+                { type: 'photo', icon: 'fa-camera', label: 'Foto' }
+            ];
+
+            if (loading) {
+                return <div className="flex justify-center p-8">Cargando plantillas...</div>;
+            }
+
+            return (
+                <div>
+                    <div className="mb-6 flex justify-between items-center">
+                        <h2 className="text-2xl font-bold">Editor de Plantillas</h2>
+                        <button
+                            onClick={() => setShowEditor(true)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                            <i className="fas fa-plus mr-2"></i>
+                            Nueva Plantilla
+                        </button>
+                    </div>
+
+                    {!showEditor ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {templates.length === 0 ? (
+                                <div className="col-span-3 bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                                    No hay plantillas creadas
+                                </div>
+                            ) : (
+                                templates.map(template => (
+                                    <div key={template.id} className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-lg font-semibold mb-2">{template.name}</h3>
+                                        <p className="text-sm text-gray-600 mb-4">
+                                            Tipo: {template.type === 'inspection' ? 'Inspección' : 'Otro'}
+                                        </p>
+                                        <p className="text-sm text-gray-600 mb-4">
+                                            Campos: {template.config.fields?.length || 0}
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button className="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200">
+                                                Editar
+                                            </button>
+                                            <button className="flex-1 px-3 py-2 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200">
+                                                Usar
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-lg shadow p-6">
+                            <div className="mb-6">
+                                <button
+                                    onClick={() => setShowEditor(false)}
+                                    className="text-gray-600 hover:text-gray-900"
+                                >
+                                    ← Volver
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-12 gap-6">
+                                <div className="col-span-4">
+                                    <h3 className="font-semibold mb-4">Configuración</h3>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Nombre de la Plantilla</label>
+                                            <input
+                                                type="text"
+                                                value={formName}
+                                                onChange={(e) => setFormName(e.target.value)}
+                                                className="w-full px-3 py-2 border rounded"
+                                                placeholder="Ej: Inspección Básica"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Tipo</label>
+                                            <select
+                                                value={formType}
+                                                onChange={(e) => setFormType(e.target.value)}
+                                                className="w-full px-3 py-2 border rounded"
+                                            >
+                                                <option value="inspection">Inspección</option>
+                                                <option value="checkin">Check-in</option>
+                                                <option value="checkout">Check-out</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <h3 className="font-semibold mt-6 mb-4">Tipos de Campo</h3>
+                                    <div className="space-y-2">
+                                        {fieldTypes.map(fieldType => (
+                                            <button
+                                                key={fieldType.type}
+                                                onClick={() => handleAddField(fieldType.type)}
+                                                className="w-full p-3 bg-gray-100 rounded hover:bg-gray-200 text-left"
+                                            >
+                                                <i className={`fas ${fieldType.icon} mr-2`}></i>
+                                                {fieldType.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="col-span-8">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-semibold">Vista Previa del Formulario</h3>
+                                        <button
+                                            onClick={handleSaveTemplate}
+                                            disabled={!formName || formFields.length === 0}
+                                            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                                        >
+                                            Guardar Plantilla
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 min-h-[400px]">
+                                        {formFields.length === 0 ? (
+                                            <div className="text-center text-gray-500 py-8">
+                                                <i className="fas fa-arrow-left text-3xl mb-4"></i>
+                                                <p>Arrastra campos desde la izquierda para comenzar</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                {formFields.map(field => (
+                                                    <div key={field.id} className="bg-gray-50 p-4 rounded relative">
+                                                        <button
+                                                            onClick={() => handleRemoveField(field.id)}
+                                                            className="absolute top-2 right-2 text-red-500 hover:text-red-700"
+                                                        >
+                                                            <i className="fas fa-times"></i>
+                                                        </button>
+                                                        
+                                                        <div className="mb-2">
+                                                            <input
+                                                                type="text"
+                                                                value={field.label}
+                                                                onChange={(e) => handleUpdateField(field.id, { label: e.target.value })}
+                                                                className="font-medium bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                        
+                                                        {field.type === 'text' && (
+                                                            <input type="text" className="w-full p-2 border rounded" disabled placeholder="Texto de ejemplo" />
+                                                        )}
+                                                        
+                                                        {field.type === 'number' && (
+                                                            <input type="number" className="w-full p-2 border rounded" disabled placeholder="0" />
+                                                        )}
+                                                        
+                                                        {field.type === 'select' && (
+                                                            <select className="w-full p-2 border rounded" disabled>
+                                                                <option>Seleccione una opción</option>
+                                                                {field.options.map((opt, i) => (
+                                                                    <option key={i}>{opt}</option>
+                                                                ))}
+                                                            </select>
+                                                        )}
+                                                        
+                                                        {field.type === 'checkbox' && (
+                                                            <label className="flex items-center">
+                                                                <input type="checkbox" className="mr-2" disabled />
+                                                                <span>Opción de checkbox</span>
+                                                            </label>
+                                                        )}
+                                                        
+                                                        {field.type === 'textarea' && (
+                                                            <textarea className="w-full p-2 border rounded" rows="3" disabled placeholder="Texto largo..." />
+                                                        )}
+                                                        
+                                                        {field.type === 'photo' && (
+                                                            <div className="border-2 border-dashed border-gray-300 rounded p-4 text-center">
+                                                                <i className="fas fa-camera text-gray-400 text-3xl mb-2"></i>
+                                                                <p className="text-sm text-gray-500">Capturar foto</p>
+                                                            </div>
+                                                        )}
+                                                        
+                                                        <div className="mt-2">
+                                                            <label className="text-sm">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={field.required}
+                                                                    onChange={(e) => handleUpdateField(field.id, { required: e.target.checked })}
+                                                                    className="mr-1"
+                                                                />
+                                                                Campo requerido
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const UserManagement = () => {
+            const [users, setUsers] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [editingUser, setEditingUser] = useState(null);
+            const [formData, setFormData] = useState({
+                email: '',
+                password: '',
+                name: '',
+                role: 'inspector',
+                permissions: {
+                    // Inspecciones
+                    delete_inspections: false,
+                    create_inspections: false,
+                    edit_inspections: false,
+                    view_inspections: true,
+                    view_all_inspections: false,
+                    update_inspection_fields: false,
+                    // Usuarios
+                    manage_users: false,
+                    reset_passwords: false,
+                    // Plantillas
+                    manage_templates: false,
+                    delete_templates: false,
+                    // Vehículos
+                    create_vehicles: false,
+                    edit_vehicles: false,
+                    delete_vehicles: false,
+                    // Otros
+                    export_reports: false,
+                    client_view_only: false
+                }
+            });
+
+            const fetchUsers = async () => {
+                try {
+                    const response = await axios.get(`${API_URL}/users`);
+                    setUsers(response.data);
+                } catch (error) {
+                    if (error.response?.status === 403) {
+                        alert('No tiene permisos para ver usuarios');
+                    }
+                }
+                setLoading(false);
+            };
+
+            useEffect(() => {
+                fetchUsers();
+            }, []);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                
+                try {
+                    if (editingUser) {
+                        await axios.put(`${API_URL}/users/${editingUser.id}`, {
+                            name: formData.name,
+                            role: formData.role,
+                            permissions: formData.permissions,
+                            active: formData.active
+                        });
+                    } else {
+                        await axios.post(`${API_URL}/users`, formData);
+                    }
+                    
+                    setShowAddModal(false);
+                    setEditingUser(null);
+                    resetForm();
+                    fetchUsers();
+                } catch (error) {
+                    alert('Error al guardar usuario');
+                }
+            };
+
+            const resetForm = () => {
+                setFormData({
+                    email: '',
+                    password: '',
+                    name: '',
+                    role: 'inspector',
+                    permissions: {
+                        delete_inspections: false,
+                        manage_users: false,
+                        manage_templates: false,
+                        view_all_inspections: false
+                    }
+                });
+            };
+
+            const handleEdit = (user) => {
+                setEditingUser(user);
+                setFormData({
+                    ...user,
+                    password: '', // Don't show password
+                    permissions: user.permissions || {}
+                });
+                setShowAddModal(true);
+            };
+
+            const handleResetPassword = async (user) => {
+                const newPassword = prompt(`Ingrese nueva contraseña para ${user.name}:`);
+                if (!newPassword) return;
+
+                if (newPassword.length < 6) {
+                    alert('La contraseña debe tener al menos 6 caracteres');
+                    return;
+                }
+
+                try {
+                    await axios.put(`${API_URL}/users/${user.id}/reset-password`, {
+                        newPassword
+                    });
+                    alert('Contraseña actualizada exitosamente');
+                } catch (error) {
+                    alert('Error al resetear contraseña');
+                }
+            };
+
+            const getRoleDisplay = (role) => {
+                const roles = {
+                    admin: 'Administrador',
+                    leader: 'Líder',
+                    inspector: 'Inspector',
+                    client: 'Cliente'
+                };
+                return roles[role] || role;
+            };
+
+            const getPermissionDisplay = (permission) => {
+                const permissions = {
+                    // Inspecciones
+                    delete_inspections: 'Eliminar Inspecciones',
+                    create_inspections: 'Crear Inspecciones',
+                    edit_inspections: 'Editar Inspecciones',
+                    view_inspections: 'Ver Inspecciones',
+                    view_all_inspections: 'Ver Todas las Inspecciones',
+                    update_inspection_fields: 'Actualizar Campos de Inspección',
+                    // Usuarios
+                    manage_users: 'Gestionar Usuarios',
+                    reset_passwords: 'Resetear Contraseñas',
+                    // Plantillas
+                    manage_templates: 'Gestionar Plantillas',
+                    delete_templates: 'Eliminar Plantillas',
+                    // Vehículos
+                    create_vehicles: 'Crear Vehículos',
+                    edit_vehicles: 'Editar Vehículos',
+                    delete_vehicles: 'Eliminar Vehículos',
+                    // Otros
+                    export_reports: 'Exportar Reportes',
+                    client_view_only: 'Vista Solo Lectura (Cliente)'
+                };
+                return permissions[permission] || permission;
+            };
+
+            if (loading) {
+                return <div className="flex justify-center p-8">Cargando usuarios...</div>;
+            }
+
+            return (
+                <div>
+                    <div className="mb-6 flex justify-between items-center">
+                        <h2 className="text-2xl font-bold">Gestión de Usuarios</h2>
+                        <button
+                            onClick={() => {
+                                resetForm();
+                                setEditingUser(null);
+                                setShowAddModal(true);
+                            }}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                            <i className="fas fa-plus mr-2"></i>
+                            Nuevo Usuario
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {users.map(user => (
+                            <div key={user.id} className="bg-white rounded-lg shadow p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold">{user.name}</h3>
+                                        <p className="text-sm text-gray-600">{user.email}</p>
+                                    </div>
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                        user.active 
+                                            ? 'bg-green-100 text-green-800' 
+                                            : 'bg-red-100 text-red-800'
+                                    }`}>
+                                        {user.active ? 'Activo' : 'Inactivo'}
+                                    </span>
+                                </div>
+                                
+                                <div className="mb-4">
+                                    <span className="text-sm text-gray-500">Rol:</span>
+                                    <p className="font-medium">{getRoleDisplay(user.role)}</p>
+                                </div>
+
+                                <div className="mb-4">
+                                    <span className="text-sm text-gray-500">Permisos:</span>
+                                    <div className="mt-1 space-y-1">
+                                        {Object.entries(user.permissions || {}).filter(([_, value]) => value).map(([key, _]) => (
+                                            <div key={key} className="text-xs bg-gray-100 rounded px-2 py-1 inline-block mr-1 mb-1">
+                                                {getPermissionDisplay(key)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleEdit(user)}
+                                        className="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
+                                    >
+                                        Editar
+                                    </button>
+                                    {JSON.parse(localStorage.getItem('userPermissions') || '{}').reset_passwords && (
+                                        <button
+                                            onClick={() => handleResetPassword(user)}
+                                            className="flex-1 px-3 py-2 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 text-sm"
+                                        >
+                                            Reset Pass
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-lg max-w-2xl w-full p-6">
+                                <h2 className="text-xl font-bold mb-4">
+                                    {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
+                                </h2>
+                                <form onSubmit={handleSubmit}>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Nombre *</label>
+                                            <input
+                                                type="text"
+                                                required
+                                                value={formData.name}
+                                                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                                                className="w-full px-3 py-2 border rounded"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Email *</label>
+                                            <input
+                                                type="email"
+                                                required
+                                                disabled={editingUser}
+                                                value={formData.email}
+                                                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                                className="w-full px-3 py-2 border rounded disabled:bg-gray-100"
+                                            />
+                                        </div>
+                                        {!editingUser && (
+                                            <div>
+                                                <label className="block text-sm font-medium mb-1">Contraseña *</label>
+                                                <input
+                                                    type="password"
+                                                    required
+                                                    value={formData.password}
+                                                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                                                    className="w-full px-3 py-2 border rounded"
+                                                />
+                                            </div>
+                                        )}
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Rol</label>
+                                            <select
+                                                value={formData.role}
+                                                onChange={(e) => setFormData({...formData, role: e.target.value})}
+                                                className="w-full px-3 py-2 border rounded"
+                                            >
+                                                <option value="inspector">Inspector</option>
+                                                <option value="leader">Líder</option>
+                                                <option value="admin">Administrador</option>
+                                                <option value="client">Cliente</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-6">
+                                        <h3 className="font-medium mb-3">Permisos</h3>
+                                        <div className="space-y-2">
+                                            {Object.entries({
+                                                // Gestión de Usuarios
+                                                manage_users: 'Gestionar Usuarios',
+                                                reset_passwords: 'Resetear Contraseñas',
+                                                // Gestión de Inspecciones
+                                                create_inspections: 'Crear Inspecciones',
+                                                edit_inspections: 'Editar Inspecciones',
+                                                delete_inspections: 'Eliminar Inspecciones',
+                                                view_all_inspections: 'Ver Todas las Inspecciones',
+                                                update_inspection_fields: 'Actualizar Campos de Inspección',
+                                                // Gestión de Plantillas
+                                                manage_templates: 'Gestionar Plantillas',
+                                                delete_templates: 'Eliminar Plantillas',
+                                                // Gestión de Vehículos
+                                                create_vehicles: 'Crear Vehículos',
+                                                edit_vehicles: 'Editar Vehículos',
+                                                delete_vehicles: 'Eliminar Vehículos',
+                                                // Otros
+                                                export_reports: 'Exportar Reportes',
+                                                client_view_only: 'Vista Solo Lectura (Cliente)'
+                                            }).map(([key, label]) => (
+                                                <label key={key} className="flex items-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formData.permissions[key] || false}
+                                                        onChange={(e) => setFormData({
+                                                            ...formData,
+                                                            permissions: {
+                                                                ...formData.permissions,
+                                                                [key]: e.target.checked
+                                                            }
+                                                        })}
+                                                        className="mr-2"
+                                                    />
+                                                    {label}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {editingUser && (
+                                        <div className="mt-4">
+                                            <label className="flex items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={formData.active}
+                                                    onChange={(e) => setFormData({...formData, active: e.target.checked})}
+                                                    className="mr-2"
+                                                />
+                                                Usuario Activo
+                                            </label>
+                                        </div>
+                                    )}
+
+                                    <div className="mt-6 flex gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowAddModal(false);
+                                                setEditingUser(null);
+                                            }}
+                                            className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                        >
+                                            {editingUser ? 'Guardar Cambios' : 'Crear Usuario'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const ClientDashboard = ({ user, onLogout }) => {
+            const [vehicles, setVehicles] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [filter, setFilter] = useState('all');
+
+            const fetchVehicles = async () => {
+                try {
+                    const response = await axios.get(`${API_URL}/vehicles`);
+                    setVehicles(response.data);
+                } catch (error) {
+                    console.error('Error fetching vehicles:', error);
+                }
+                setLoading(false);
+            };
+
+            useEffect(() => {
+                fetchVehicles();
+            }, []);
+
+            const filteredVehicles = vehicles.filter(vehicle => {
+                if (filter === 'all') return true;
+                return vehicle.status === filter;
+            });
+
+            if (loading) {
+                return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <header className="bg-blue-800 text-white shadow">
+                        <div className="max-w-7xl mx-auto px-4 py-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h1 className="text-3xl font-bold">Portal de Cliente - MACAL</h1>
+                                    <p className="text-blue-200 mt-1">Bienvenido, {user.name}</p>
+                                </div>
+                                <button
+                                    onClick={onLogout}
+                                    className="px-4 py-2 bg-blue-900 text-white rounded hover:bg-blue-700"
+                                >
+                                    Cerrar Sesión
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto px-4 py-8">
+                        <div className="bg-white rounded-lg shadow p-6 mb-6">
+                            <h2 className="text-xl font-semibold mb-4">Resumen de Flota</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div className="bg-blue-50 p-4 rounded">
+                                    <p className="text-sm text-gray-600">Total Vehículos</p>
+                                    <p className="text-2xl font-bold text-blue-600">{vehicles.length}</p>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded">
+                                    <p className="text-sm text-gray-600">Completados</p>
+                                    <p className="text-2xl font-bold text-green-600">
+                                        {vehicles.filter(v => v.status === 'completed').length}
+                                    </p>
+                                </div>
+                                <div className="bg-yellow-50 p-4 rounded">
+                                    <p className="text-sm text-gray-600">En Inspección</p>
+                                    <p className="text-2xl font-bold text-yellow-600">
+                                        {vehicles.filter(v => v.status === 'inspecting').length}
+                                    </p>
+                                </div>
+                                <div className="bg-gray-50 p-4 rounded">
+                                    <p className="text-sm text-gray-600">Pendientes</p>
+                                    <p className="text-2xl font-bold text-gray-600">
+                                        {vehicles.filter(v => v.status === 'pending').length}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg shadow">
+                            <div className="p-6 border-b">
+                                <div className="flex items-center justify-between">
+                                    <h2 className="text-xl font-semibold">Vehículos</h2>
+                                    <select
+                                        value={filter}
+                                        onChange={(e) => setFilter(e.target.value)}
+                                        className="px-4 py-2 border rounded"
+                                    >
+                                        <option value="all">Todos los estados</option>
+                                        <option value="completed">Completados</option>
+                                        <option value="inspecting">En Inspección</option>
+                                        <option value="pending">Pendientes</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Patente
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Vehículo
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                VIN
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Estado
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Fecha Ingreso
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                                Acciones
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {filteredVehicles.map(vehicle => (
+                                            <tr key={vehicle.id}>
+                                                <td className="px-6 py-4 whitespace-nowrap font-medium">
+                                                    {vehicle.license_plate}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {vehicle.make} {vehicle.model} {vehicle.year}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    {vehicle.vin || '-'}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                                        vehicle.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                                        vehicle.status === 'inspecting' ? 'bg-yellow-100 text-yellow-800' :
+                                                        'bg-gray-100 text-gray-800'
+                                                    }`}>
+                                                        {vehicle.status === 'completed' ? 'Completado' :
+                                                         vehicle.status === 'inspecting' ? 'En Inspección' : 'Pendiente'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    {new Date(vehicle.check_in_date).toLocaleDateString()}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                    <button className="text-blue-600 hover:text-blue-900">
+                                                        Ver Detalles
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ user, onLogout }) => {
+            const [activeView, setActiveView] = useState('vehicles');
+
+            // Si es cliente, mostrar dashboard especial
+            if (user.role === 'client') {
+                return <ClientDashboard user={user} onLogout={onLogout} />;
+            }
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <header className="bg-white shadow">
+                        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+                            <h1 className="text-2xl font-bold">MACAL Inventory System</h1>
+                            <div className="flex items-center gap-4">
+                                <span className="text-gray-600">Hola, {user.name}</span>
+                                <button
+                                    onClick={onLogout}
+                                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                                >
+                                    Cerrar Sesión
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <nav className="bg-gray-800 text-white">
+                        <div className="max-w-7xl mx-auto px-4">
+                            <div className="flex space-x-8">
+                                <button
+                                    onClick={() => setActiveView('vehicles')}
+                                    className={`py-4 px-3 ${activeView === 'vehicles' ? 'border-b-2 border-white' : ''}`}
+                                >
+                                    <i className="fas fa-car mr-2"></i>
+                                    Vehículos
+                                </button>
+                                {user.permissions?.create_inspections !== false && (
+                                    <button
+                                        onClick={() => setActiveView('inspections')}
+                                        className={`py-4 px-3 ${activeView === 'inspections' ? 'border-b-2 border-white' : ''}`}
+                                    >
+                                        <i className="fas fa-clipboard-check mr-2"></i>
+                                        Inspecciones
+                                    </button>
+                                )}
+                                {user.permissions?.manage_templates && (
+                                    <button
+                                        onClick={() => setActiveView('templates')}
+                                        className={`py-4 px-3 ${activeView === 'templates' ? 'border-b-2 border-white' : ''}`}
+                                    >
+                                        <i className="fas fa-file-alt mr-2"></i>
+                                        Plantillas
+                                    </button>
+                                )}
+                                {user.permissions?.manage_users && (
+                                    <button
+                                        onClick={() => setActiveView('users')}
+                                        className={`py-4 px-3 ${activeView === 'users' ? 'border-b-2 border-white' : ''}`}
+                                    >
+                                        <i className="fas fa-users mr-2"></i>
+                                        Usuarios
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-7xl mx-auto px-4 py-8">
+                        {activeView === 'vehicles' && <VehicleList />}
+                        {activeView === 'inspections' && <InspectionList />}
+                        {activeView === 'templates' && <TemplateEditor />}
+                        {activeView === 'users' && <UserManagement />}
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                // Check if user is logged in
+                if (authToken) {
+                    // TODO: Validate token with backend
+                    setUser({ name: 'Usuario' });
+                }
+                setLoading(false);
+            }, []);
+
+            const handleLogin = (userData) => {
+                setUser(userData);
+            };
+
+            const handleLogout = () => {
+                localStorage.removeItem('authToken');
+                authToken = null;
+                setUser(null);
+            };
+
+            if (loading) {
+                return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
+            }
+
+            return user ? (
+                <Dashboard user={user} onLogout={handleLogout} />
+            ) : (
+                <LoginForm onLogin={handleLogin} />
+            );
+        };
+
+        // Render the app
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>

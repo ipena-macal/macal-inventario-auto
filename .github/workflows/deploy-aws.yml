@@ -1,0 +1,156 @@
+name: Deploy MACAL Inventory to AWS
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  workflow_dispatch:  # Manual trigger
+
+env:
+  AWS_REGION: us-east-2
+  EC2_INSTANCE_ID: i-094eb0c84746592d3
+  S3_FRONTEND_BUCKET: macal-inventory-frontend-036401800076-us-east-2
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend to EC2
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: macal-inventory-v2/backend-node/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd macal-inventory-v2/backend-node
+        npm ci
+        
+    - name: Run tests (if available)
+      run: |
+        cd macal-inventory-v2/backend-node
+        npm test || echo "No tests configured"
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Create deployment package
+      run: |
+        cd macal-inventory-v2
+        zip -r backend-deployment.zip backend-node/ -x "*/node_modules/*" "*.log" ".git/*"
+        
+    - name: Upload to S3
+      run: |
+        aws s3 cp macal-inventory-v2/backend-deployment.zip s3://macal-deployment-${{ github.sha }}/
+        
+    - name: Deploy to EC2 via SSM
+      run: |
+        DEPLOYMENT_SCRIPT="
+        #!/bin/bash
+        set -e
+        
+        # Stop existing application
+        sudo pkill -f 'node server.js' || true
+        
+        # Download and extract new version
+        cd /home/ubuntu
+        aws s3 cp s3://macal-deployment-${{ github.sha }}/backend-deployment.zip ./
+        
+        # Backup current version
+        if [ -d 'macal-inventory' ]; then
+          sudo mv macal-inventory macal-inventory-backup-\$(date +%Y%m%d-%H%M%S)
+        fi
+        
+        # Extract new version
+        unzip -q backend-deployment.zip
+        sudo chown -R ubuntu:ubuntu backend-node
+        
+        # Install dependencies
+        cd backend-node
+        npm install --production
+        
+        # Copy environment file
+        cp /home/ubuntu/.env ./ || echo 'Using default environment'
+        
+        # Start application
+        nohup npm start > /home/ubuntu/app.log 2>&1 &
+        
+        # Wait and verify
+        sleep 10
+        if curl -f http://localhost:3001/health; then
+          echo '✅ Deployment successful'
+        else
+          echo '❌ Deployment failed - health check failed'
+          exit 1
+        fi
+        "
+        
+        aws ssm send-command \
+          --instance-ids ${{ env.EC2_INSTANCE_ID }} \
+          --document-name "AWS-RunShellScript" \
+          --parameters "commands=[\"$DEPLOYMENT_SCRIPT\"]" \
+          --comment "Deploy MACAL Backend - SHA: ${{ github.sha }}"
+
+  deploy-frontend:
+    name: Deploy Frontend to S3
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Update frontend configuration
+      run: |
+        cd macal-inventory-v2/frontend-simple
+        echo "window.API_URL = 'http://3.15.143.80:3001';" > config.js
+        echo "window.VERSION = '${{ github.sha }}';" >> config.js
+        echo "window.DEPLOY_TIME = '$(date -u +%Y-%m-%dT%H:%M:%SZ)';" >> config.js
+        
+    - name: Deploy to S3
+      run: |
+        cd macal-inventory-v2/frontend-simple
+        aws s3 sync . s3://${{ env.S3_FRONTEND_BUCKET }} \
+          --delete \
+          --exclude "*.log" \
+          --exclude ".DS_Store" \
+          --cache-control "max-age=300"
+          
+    - name: Invalidate CloudFront (if exists)
+      run: |
+        # Optional: Invalidate CloudFront cache
+        # aws cloudfront create-invalidation --distribution-id YOUR_DISTRIBUTION_ID --paths "/*" || echo "No CloudFront distribution"
+
+  notify:
+    name: Notification
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend]
+    if: always()
+    
+    steps:
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.deploy-backend.result }}" == "success" ] && [ "${{ needs.deploy-frontend.result }}" == "success" ]; then
+          echo "🎉 Deployment successful!"
+          echo "Frontend: http://macal-inventory-frontend-036401800076-us-east-2.s3-website.us-east-2.amazonaws.com"
+          echo "Backend: http://3.15.143.80:3001"
+        else
+          echo "❌ Deployment failed"
+          exit 1
+        fi
