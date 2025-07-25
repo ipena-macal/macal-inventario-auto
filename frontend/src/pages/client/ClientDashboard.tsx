@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { 
-  Car, FileText, Camera, Download, Search, Filter,
-  Calendar, AlertCircle, CheckCircle, Clock, TrendingUp
+  Car, Download, Search,
+  CheckCircle, Clock, TrendingUp
 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 // Components
@@ -17,7 +17,14 @@ import { ExportModal } from '@/components/client/ExportModal'
 import { clientService } from '@/services/clientService'
 
 // Types
-import { Vehicle, Inspection } from '@/types'
+interface Vehicle {
+  id: string
+  licensePlate: string
+  make: string
+  model: string
+  year: number
+  status: string
+}
 
 export const ClientDashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('')
@@ -51,11 +58,11 @@ export const ClientDashboard: React.FC = () => {
   })
 
   // Filter vehicles by search
-  const filteredVehicles = vehicles?.filter(v => 
-    v.licensePlate.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredVehicles = vehicles?.filter((v: any) => 
+    v.licensePlate?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.vin?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    v.make.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    v.model.toLowerCase().includes(searchQuery.toLowerCase())
+    v.make?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    v.model?.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   return (
@@ -204,7 +211,7 @@ export const ClientDashboard: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredVehicles?.map(vehicle => (
+            {filteredVehicles?.map((vehicle: any) => (
               <VehicleCard
                 key={vehicle.id}
                 vehicle={vehicle}

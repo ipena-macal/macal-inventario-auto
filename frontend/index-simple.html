@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MACAL Inventory - Cargando...</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div class="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div class="text-center">
+            <h1 class="text-3xl font-bold mb-4">Sistema MACAL</h1>
+            <p class="text-gray-600 mb-8">Redirigiendo al sistema actualizado...</p>
+            <a href="http://3.148.227.249:3000" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Ir al Sistema
+            </a>
+        </div>
+    </div>
+    <script>
+        // Redirigir automáticamente después de 2 segundos
+        setTimeout(() => {
+            window.location.href = 'http://3.148.227.249:3000';
+        }, 2000);
+    </script>
+</body>
+</html>

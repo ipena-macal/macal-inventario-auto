@@ -1,6 +1,6 @@
 import React from 'react'
 import { FileText, Camera, Info, Calendar, Gauge } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 interface VehicleCardProps {

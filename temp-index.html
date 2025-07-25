@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MACAL Inventory System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const API_URL = 'http://3.148.227.249:3001';
+        
+        const App = () => {
+            const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+            const [vehicles, setVehicles] = React.useState([]);
+            const [loading, setLoading] = React.useState(false);
+            const [token, setToken] = React.useState(localStorage.getItem('token'));
+            const [selectedVehicle, setSelectedVehicle] = React.useState(null);
+            
+            React.useEffect(() => {
+                if (token) {
+                    setIsLoggedIn(true);
+                    loadVehicles();
+                }
+            }, [token]);
+            
+            const login = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    const response = await axios.post(`${API_URL}/api/v1/auth/login`, {
+                        email: e.target.email.value,
+                        password: e.target.password.value
+                    });
+                    const { token } = response.data;
+                    localStorage.setItem('token', token);
+                    setToken(token);
+                    setIsLoggedIn(true);
+                } catch (error) {
+                    alert('Error al iniciar sesión');
+                }
+                setLoading(false);
+            };
+            
+            const loadVehicles = async () => {
+                setLoading(true);
+                try {
+                    const response = await axios.get(`${API_URL}/api/v1/vehicles`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setVehicles(response.data);
+                } catch (error) {
+                    console.error('Error loading vehicles:', error);
+                }
+                setLoading(false);
+            };
+            
+            const logout = () => {
+                localStorage.removeItem('token');
+                setToken(null);
+                setIsLoggedIn(false);
+                setVehicles([]);
+            };
+            
+            const VehicleDetail = ({ vehicle, onBack }) => (
+                <div className="bg-white rounded-lg shadow p-6">
+                    <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800">
+                        ← Volver a vehículos
+                    </button>
+                    <h2 className="text-2xl font-bold mb-4">{vehicle.license_plate}</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-sm text-gray-500">Marca</p>
+                            <p className="font-medium">{vehicle.make}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Modelo</p>
+                            <p className="font-medium">{vehicle.model}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Año</p>
+                            <p className="font-medium">{vehicle.year}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Color</p>
+                            <p className="font-medium">{vehicle.color || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Kilometraje</p>
+                            <p className="font-medium">{vehicle.mileage?.toLocaleString() || 'N/A'} km</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-gray-500">Estado</p>
+                            <p className="font-medium capitalize">{vehicle.status}</p>
+                        </div>
+                    </div>
+                    <div className="mt-6 flex gap-3">
+                        <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                            Inspeccionar
+                        </button>
+                        <button className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                            Ver Fotos
+                        </button>
+                    </div>
+                </div>
+            );
+            
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+                        <div className="bg-white p-8 rounded-lg shadow-lg w-96">
+                            <h1 className="text-2xl font-bold mb-6 text-center">MACAL Inventory</h1>
+                            <form onSubmit={login}>
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium mb-2">Email</label>
+                                    <input
+                                        type="email"
+                                        name="email"
+                                        defaultValue="admin@macal.cl"
+                                        className="w-full px-3 py-2 border rounded"
+                                        required
+                                    />
+                                </div>
+                                <div className="mb-6">
+                                    <label className="block text-sm font-medium mb-2">Contraseña</label>
+                                    <input
+                                        type="password"
+                                        name="password"
+                                        defaultValue="MacalAdmin2024"
+                                        className="w-full px-3 py-2 border rounded"
+                                        required
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                    {loading ? 'Iniciando...' : 'Iniciar Sesión'}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+            
+            if (selectedVehicle) {
+                return (
+                    <div className="min-h-screen bg-gray-100">
+                        <div className="bg-white shadow">
+                            <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                                <h1 className="text-xl font-bold">MACAL Inventory System</h1>
+                                <button onClick={logout} className="text-red-600 hover:text-red-800">
+                                    Cerrar Sesión
+                                </button>
+                            </div>
+                        </div>
+                        <div className="max-w-7xl mx-auto px-4 py-8">
+                            <VehicleDetail vehicle={selectedVehicle} onBack={() => setSelectedVehicle(null)} />
+                        </div>
+                    </div>
+                );
+            }
+            
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <div className="bg-white shadow">
+                        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 className="text-xl font-bold">MACAL Inventory System</h1>
+                            <button onClick={logout} className="text-red-600 hover:text-red-800">
+                                Cerrar Sesión
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="max-w-7xl mx-auto px-4 py-8">
+                        <h2 className="text-2xl font-bold mb-6">Vehículos</h2>
+                        
+                        {loading ? (
+                            <div className="text-center py-12">
+                                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                            </div>
+                        ) : vehicles.length === 0 ? (
+                            <div className="bg-white rounded-lg shadow p-12 text-center">
+                                <p className="text-gray-500">No hay vehículos disponibles</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {vehicles.map(vehicle => (
+                                    <div key={vehicle.id} className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-xl font-semibold mb-2">{vehicle.license_plate}</h3>
+                                        <p className="text-gray-600 mb-4">
+                                            {vehicle.make} {vehicle.model} {vehicle.year}
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setSelectedVehicle(vehicle)}
+                                                className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                                            >
+                                                Ver Detalle
+                                            </button>
+                                            <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                                                Inspeccionar
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+        
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
