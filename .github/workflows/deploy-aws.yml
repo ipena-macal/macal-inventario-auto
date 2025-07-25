@@ -7,7 +7,7 @@ on:
 
 env:
   AWS_REGION: us-east-2
-  EC2_INSTANCE_ID: i-094eb0c84746592d3
+  EC2_INSTANCE_ID: i-09bb7ca5173ff79b1
   S3_FRONTEND_BUCKET: macal-inventory-frontend-036401800076-us-east-2
 
 jobs:

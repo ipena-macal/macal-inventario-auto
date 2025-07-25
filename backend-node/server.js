@@ -322,6 +322,21 @@ app.get('/api/v1/vehicles', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/api/v1/vehicles/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM vehicles WHERE id = $1', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/v1/vehicles', authenticateToken, async (req, res) => {
   try {
     const { license_plate, vin, make, model, year, color, mileage } = req.body;

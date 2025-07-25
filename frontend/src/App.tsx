@@ -61,7 +61,7 @@ function App() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/vehicles" element={<VehiclesPage />} />
-              <Route path="/vehicles/:id" element={<VehiclePage />} />
+              <Route path="/vehicles/:id" element={<VehicleDetailPage />} />
               <Route path="/inspections" element={<InspectionsPage />} />
               <Route path="/inspections/:id" element={<InspectionPage />} />
               <Route path="/inspections/:id/flow" element={<InspectionFlowPage />} />
@@ -85,6 +85,8 @@ function App() {
 
 export default App
 
-// Placeholder components - to be implemented
-const VehiclePage = () => <div>Vehicle Detail Page</div>
+// Import vehicle detail page
+import { VehicleDetailPage } from '@/pages/VehicleDetailPage'
+
+// Placeholder component
 const InspectionsPage = () => <div>Inspections List Page</div>
