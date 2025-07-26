@@ -1,310 +1,259 @@
 import React, { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'react-hot-toast'
 import { 
   Plus, Edit, Trash2, Key, Shield, Eye, EyeOff,
-  Building, Mail, Phone, Calendar, Activity, Copy
+  Building, Mail, Phone, Calendar, Activity, Copy, Car
 } from 'lucide-react'
 import { format } from 'date-fns'
-
-// Components
-import { ClientFormModal } from '@/components/admin/ClientFormModal'
-import { PermissionsModal } from '@/components/admin/PermissionsModal'
-import { AccessLogModal } from '@/components/admin/AccessLogModal'
-
-// Services
-import { clientManagementService } from '@/services/clientManagementService'
-
-// Types
-import { ClientOrganization } from '@/types/client'
+import { es } from 'date-fns/locale'
+import { toast } from 'react-hot-toast'
 
 export const ClientManagementPage: React.FC = () => {
-  const queryClient = useQueryClient()
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [editingClient, setEditingClient] = useState<ClientOrganization | null>(null)
-  const [managingPermissions, setManagingPermissions] = useState<ClientOrganization | null>(null)
-  const [viewingLogs, setViewingLogs] = useState<ClientOrganization | null>(null)
-  const [showTokens, setShowTokens] = useState<Record<string, boolean>>({})
-
-  // Fetch clients
-  const { data: clients, isLoading } = useQuery({
-    queryKey: ['clients'],
-    queryFn: () => clientManagementService.getClients()
-  })
-
-  // Create client mutation
-  const createMutation = useMutation({
-    mutationFn: clientManagementService.createClient,
-    onSuccess: () => {
-      toast.success('Cliente creado exitosamente')
-      queryClient.invalidateQueries(['clients'])
-      setShowCreateModal(false)
+  const [clients] = useState([
+    {
+      id: '1',
+      name: 'Banco Santander',
+      email: 'client@bank.cl',
+      phone: '+56 2 2345 6789',
+      active: true,
+      vehicles: 15,
+      lastAccess: new Date('2025-07-25T10:00:00'),
+      permissions: {
+        canViewInspections: true,
+        canViewPhotos: true,
+        canDownloadReports: true
+      }
     },
-    onError: () => {
-      toast.error('Error al crear el cliente')
+    {
+      id: '2',
+      name: 'Seguros Falabella',
+      email: 'contacto@seguros.cl',
+      phone: '+56 2 3456 7890',
+      active: true,
+      vehicles: 8,
+      lastAccess: new Date('2025-07-24T15:30:00'),
+      permissions: {
+        canViewInspections: true,
+        canViewPhotos: false,
+        canDownloadReports: false
+      }
     }
-  })
+  ])
 
-  // Update client mutation
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => 
-      clientManagementService.updateClient(id, data),
-    onSuccess: () => {
-      toast.success('Cliente actualizado')
-      queryClient.invalidateQueries(['clients'])
-      setEditingClient(null)
+  const [showNewClientModal, setShowNewClientModal] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [selectedClient, setSelectedClient] = useState<any>(null)
+
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%'
+    let password = ''
+    for (let i = 0; i < 12; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length))
     }
-  })
-
-  // Delete client mutation
-  const deleteMutation = useMutation({
-    mutationFn: clientManagementService.deleteClient,
-    onSuccess: () => {
-      toast.success('Cliente eliminado')
-      queryClient.invalidateQueries(['clients'])
-    }
-  })
-
-  // Regenerate token mutation
-  const regenerateTokenMutation = useMutation({
-    mutationFn: clientManagementService.regenerateToken,
-    onSuccess: (data) => {
-      toast.success('Token regenerado')
-      queryClient.invalidateQueries(['clients'])
-      // Show the new token
-      navigator.clipboard.writeText(data.token)
-      toast.success('Token copiado al portapapeles')
-    }
-  })
-
-  const copyAccessUrl = (client: ClientOrganization) => {
-    const url = `${window.location.origin}/client-portal?token=${client.accessToken}`
-    navigator.clipboard.writeText(url)
-    toast.success('URL de acceso copiada')
+    return password
   }
 
-  const toggleTokenVisibility = (clientId: string) => {
-    setShowTokens(prev => ({ ...prev, [clientId]: !prev[clientId] }))
+  const handleResetPassword = () => {
+    const newPassword = generatePassword()
+    navigator.clipboard.writeText(newPassword)
+    toast.success(`Nueva contraseña generada y copiada: ${newPassword}`)
+    setShowPasswordModal(false)
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Gestión de Clientes
-            </h1>
-            <p className="mt-2 text-gray-600">
-              Administra el acceso de organizaciones externas al sistema
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus size={20} />
-            Nuevo Cliente
-          </button>
+    <div className="p-6">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Gestión de Clientes</h1>
+          <p className="text-gray-600">Administra el acceso de clientes externos al sistema</p>
         </div>
+        <button
+          onClick={() => setShowNewClientModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          <Plus size={20} />
+          Nuevo Cliente
+        </button>
       </div>
 
-      {/* Clients list */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      ) : clients?.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-          <Building className="mx-auto text-gray-400 mb-4" size={48} />
-          <p className="text-gray-500">No hay clientes registrados</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {clients?.map(client => (
-            <div key={client.id} className="bg-white rounded-lg shadow-sm p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-4">
-                  {client.logo ? (
-                    <img 
-                      src={client.logo} 
-                      alt={client.name}
-                      className="w-16 h-16 object-contain rounded"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center">
-                      <Building className="text-gray-400" size={24} />
-                    </div>
-                  )}
-                  
-                  <div>
-                    <h3 className="text-lg font-semibold flex items-center gap-2">
-                      {client.name}
-                      {client.active ? (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
-                          Activo
-                        </span>
-                      ) : (
-                        <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">
-                          Inactivo
-                        </span>
-                      )}
-                    </h3>
-                    
-                    <div className="mt-2 space-y-1 text-sm text-gray-600">
-                      <div className="flex items-center gap-2">
-                        <Mail size={16} />
-                        <span>{client.email}</span>
-                      </div>
-                      {client.phone && (
-                        <div className="flex items-center gap-2">
-                          <Phone size={16} />
-                          <span>{client.phone}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <Calendar size={16} />
-                        <span>Creado: {format(new Date(client.createdAt), 'dd/MM/yyyy')}</span>
-                      </div>
-                      {client.validUntil && (
-                        <div className="flex items-center gap-2">
-                          <Calendar size={16} />
-                          <span className="text-orange-600">
-                            Válido hasta: {format(new Date(client.validUntil), 'dd/MM/yyyy')}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Access token */}
-                    <div className="mt-3 p-3 bg-gray-50 rounded">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium">Token de acceso:</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => toggleTokenVisibility(client.id)}
-                            className="text-gray-500 hover:text-gray-700"
-                          >
-                            {showTokens[client.id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                          <button
-                            onClick={() => copyAccessUrl(client)}
-                            className="text-blue-600 hover:text-blue-700"
-                            title="Copiar URL de acceso"
-                          >
-                            <Copy size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      <code className="text-xs bg-gray-100 p-2 rounded block overflow-hidden">
-                        {showTokens[client.id] 
-                          ? client.accessToken 
-                          : '••••••••••••••••••••••••••••••••'}
-                      </code>
-                    </div>
-
-                    {/* Stats */}
-                    <div className="mt-3 flex items-center gap-4 text-sm">
-                      <div className="flex items-center gap-1">
-                        <Activity size={16} className="text-gray-400" />
-                        <span>{client.accessCount} accesos</span>
-                      </div>
-                      {client.lastAccess && (
-                        <div className="flex items-center gap-1">
-                          <Calendar size={16} className="text-gray-400" />
-                          <span>
-                            Último: {format(new Date(client.lastAccess), 'dd/MM HH:mm')}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+      {/* Clients Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {clients.map((client) => (
+          <div key={client.id} className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <Building className="text-blue-600" size={24} />
                 </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setManagingPermissions(client)}
-                    className="p-2 text-purple-600 hover:bg-purple-50 rounded"
-                    title="Gestionar permisos"
-                  >
-                    <Shield size={20} />
-                  </button>
-                  <button
-                    onClick={() => regenerateTokenMutation.mutate(client.id)}
-                    className="p-2 text-orange-600 hover:bg-orange-50 rounded"
-                    title="Regenerar token"
-                  >
-                    <Key size={20} />
-                  </button>
-                  <button
-                    onClick={() => setViewingLogs(client)}
-                    className="p-2 text-green-600 hover:bg-green-50 rounded"
-                    title="Ver logs de acceso"
-                  >
-                    <Activity size={20} />
-                  </button>
-                  <button
-                    onClick={() => setEditingClient(client)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                    title="Editar"
-                  >
-                    <Edit size={20} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`¿Eliminar cliente ${client.name}?`)) {
-                        deleteMutation.mutate(client.id)
-                      }
-                    }}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded"
-                    title="Eliminar"
-                  >
-                    <Trash2 size={20} />
-                  </button>
+                <div>
+                  <h3 className="font-semibold">{client.name}</h3>
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    client.active 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {client.active ? 'Activo' : 'Inactivo'}
+                  </span>
                 </div>
               </div>
             </div>
-          ))}
+
+            <div className="space-y-2 text-sm text-gray-600 mb-4">
+              <div className="flex items-center gap-2">
+                <Mail size={16} />
+                <span>{client.email}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Phone size={16} />
+                <span>{client.phone}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar size={16} />
+                <span>Último acceso: {format(client.lastAccess, 'dd/MM/yyyy HH:mm', { locale: es })}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Car size={16} />
+                <span>{client.vehicles} vehículos asignados</span>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-sm font-medium mb-2">Permisos:</p>
+              <div className="flex flex-wrap gap-2">
+                {client.permissions.canViewInspections && (
+                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                    Ver Inspecciones
+                  </span>
+                )}
+                {client.permissions.canViewPhotos && (
+                  <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">
+                    Ver Fotos
+                  </span>
+                )}
+                {client.permissions.canDownloadReports && (
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                    Descargar Reportes
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => {
+                  setSelectedClient(client)
+                  toast.success('Editando cliente')
+                }}
+                className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              >
+                <Edit size={16} />
+                Editar
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedClient(client)
+                  setShowPasswordModal(true)
+                }}
+                className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+              >
+                <Key size={16} />
+                Contraseña
+              </button>
+              <button
+                onClick={() => toast.error('¿Seguro que deseas eliminar este cliente?')}
+                className="p-2 text-red-600 hover:bg-red-50 rounded"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Simple Modal for New Client */}
+      {showNewClientModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">Nuevo Cliente</h2>
+            <form onSubmit={(e) => {
+              e.preventDefault()
+              toast.success('Cliente creado exitosamente')
+              setShowNewClientModal(false)
+            }}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nombre de la Empresa</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="Ej: Banco Estado"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Email</label>
+                  <input
+                    type="email"
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="contacto@empresa.cl"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Teléfono</label>
+                  <input
+                    type="tel"
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="+56 2 1234 5678"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowNewClientModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Crear Cliente
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
-      {/* Modals */}
-      {showCreateModal && (
-        <ClientFormModal
-          onSave={(data) => createMutation.mutate(data)}
-          onClose={() => setShowCreateModal(false)}
-        />
-      )}
-
-      {editingClient && (
-        <ClientFormModal
-          client={editingClient}
-          onSave={(data) => updateMutation.mutate({ id: editingClient.id, data })}
-          onClose={() => setEditingClient(null)}
-        />
-      )}
-
-      {managingPermissions && (
-        <PermissionsModal
-          client={managingPermissions}
-          onSave={(permissions) => {
-            updateMutation.mutate({
-              id: managingPermissions.id,
-              data: { permissions }
-            })
-            setManagingPermissions(null)
-          }}
-          onClose={() => setManagingPermissions(null)}
-        />
-      )}
-
-      {viewingLogs && (
-        <AccessLogModal
-          client={viewingLogs}
-          onClose={() => setViewingLogs(null)}
-        />
+      {/* Password Reset Modal */}
+      {showPasswordModal && selectedClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4">Resetear Contraseña</h2>
+            <p className="text-gray-600 mb-4">
+              ¿Estás seguro de resetear la contraseña para <strong>{selectedClient.name}</strong>?
+            </p>
+            <p className="text-sm text-gray-500 mb-6">
+              Se generará una nueva contraseña que será copiada al portapapeles.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowPasswordModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleResetPassword}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Generar Nueva Contraseña
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

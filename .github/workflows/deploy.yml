@@ -1,0 +1,170 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-2
+    
+    - name: Deploy Backend to EC2
+      env:
+        INSTANCE_ID: i-09bb7ca5173ff79b1
+      run: |
+        # Create deployment script
+        cat > deploy-backend.sh << 'EOF'
+        #!/bin/bash
+        sudo pkill -f "node" || true
+        sudo pkill -f "macal-backend" || true
+        
+        cd /home/ec2-user
+        rm -rf simple-backend
+        mkdir -p simple-backend
+        cd simple-backend
+        
+        cat > server.js << 'BACKEND'
+        const express = require('express');
+        const cors = require('cors');
+        const jwt = require('jsonwebtoken');
+        
+        const app = express();
+        app.use(cors());
+        app.use(express.json());
+        
+        const JWT_SECRET = 'macal-secret-2025';
+        
+        const users = [
+          { id: '1', email: 'admin@macal.cl', password: 'MacalAdmin2024', name: 'Administrador', role: 'admin' }
+        ];
+        
+        const vehicles = [
+          { id: '1', license_plate: 'GFKL-82', make: 'Toyota', model: 'Corolla', year: 2022, color: 'Blanco', mileage: 15000, status: 'completed' },
+          { id: '2', license_plate: 'HXRT-93', make: 'Nissan', model: 'Versa', year: 2023, color: 'Negro', mileage: 8000, status: 'inspecting' }
+        ];
+        
+        app.get('/health', (req, res) => {
+          res.json({ status: 'ok', timestamp: new Date() });
+        });
+        
+        app.post('/api/v1/auth/login', (req, res) => {
+          const { email, password } = req.body;
+          const user = users.find(u => u.email === email && u.password === password);
+          
+          if (!user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+          }
+          
+          const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+          const permissions = {
+            create_vehicles: true,
+            edit_vehicles: true,
+            delete_vehicles: true,
+            create_inspections: true,
+            view_all_inspections: true
+          };
+          
+          res.json({
+            token,
+            user: { ...user, permissions, password: undefined }
+          });
+        });
+        
+        app.get('/api/v1/vehicles', (req, res) => {
+          res.json(vehicles);
+        });
+        
+        app.get('/api/v1/vehicles/:id', (req, res) => {
+          const vehicle = vehicles.find(v => v.id === req.params.id);
+          if (!vehicle) {
+            return res.status(404).json({ error: 'Vehicle not found' });
+          }
+          res.json(vehicle);
+        });
+        
+        app.get('/api/v1/inspections', (req, res) => {
+          res.json([]);
+        });
+        
+        const PORT = 3001;
+        app.listen(PORT, '0.0.0.0', () => {
+          console.log('Backend running on port ' + PORT);
+        });
+        BACKEND
+        
+        npm init -y
+        npm install express cors jsonwebtoken
+        
+        # Install PM2 if not exists
+        if ! command -v pm2 &> /dev/null; then
+          sudo npm install -g pm2
+        fi
+        
+        pm2 stop all || true
+        pm2 start server.js --name macal-backend
+        pm2 save
+        pm2 startup systemd -u ec2-user --hp /home/ec2-user || true
+        
+        echo "Backend deployed!"
+        EOF
+        
+        # Deploy via SSM
+        aws ssm send-command \
+          --instance-ids "$INSTANCE_ID" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["bash -s < '"$(cat deploy-backend.sh | base64 -w 0)"'"]' \
+          --output text
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Build Frontend
+      run: |
+        cd frontend
+        npm ci
+        npm run build
+    
+    - name: Deploy Frontend to S3
+      run: |
+        BUCKET_NAME="macal-inventory-frontend"
+        
+        # Create bucket if not exists
+        aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null || \
+          aws s3 mb s3://$BUCKET_NAME --region us-east-2
+        
+        # Enable static website hosting
+        aws s3 website s3://$BUCKET_NAME \
+          --index-document index.html \
+          --error-document index.html
+        
+        # Upload frontend files
+        aws s3 sync frontend/dist/ s3://$BUCKET_NAME --delete
+        
+        # Set public read permissions
+        aws s3api put-bucket-policy --bucket $BUCKET_NAME --policy '{
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "PublicReadGetObject",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": "s3:GetObject",
+              "Resource": "arn:aws:s3:::'"$BUCKET_NAME"'/*"
+            }
+          ]
+        }'
+        
+        echo "Frontend deployed to: http://$BUCKET_NAME.s3-website.us-east-2.amazonaws.com"

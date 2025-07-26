@@ -10,6 +10,8 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { VehiclesPage } from '@/pages/VehiclesPage'
 import { InspectionPage } from '@/pages/InspectionPage'
 import { InspectionFlowPage } from '@/pages/InspectionFlowPage'
+import { FormBuilderPage } from '@/pages/admin/FormBuilderPage'
+import { ClientManagementPage } from '@/pages/admin/ClientManagementPage'
 
 // Components
 import { Layout } from '@/components/Layout'
@@ -65,6 +67,8 @@ function App() {
               <Route path="/inspections" element={<InspectionsPage />} />
               <Route path="/inspections/:id" element={<InspectionPage />} />
               <Route path="/inspections/:id/flow" element={<InspectionFlowPage />} />
+              <Route path="/admin/forms" element={<FormBuilderPage />} />
+              <Route path="/admin/clients" element={<ClientManagementPage />} />
             </Route>
           </Route>
         </Routes>
@@ -88,5 +92,5 @@ export default App
 // Import vehicle detail page
 import { VehicleDetailPage } from '@/pages/VehicleDetailPage'
 
-// Placeholder component
-const InspectionsPage = () => <div>Inspections List Page</div>
+// Import inspections page
+import { InspectionsPage } from '@/pages/InspectionsPage'
