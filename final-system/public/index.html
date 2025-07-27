@@ -118,9 +118,13 @@
     function Dashboard({ user, onLogout }) {
       const [vehicles, setVehicles] = useState([]);
       const [loading, setLoading] = useState(true);
+      const [currentView, setCurrentView] = useState('dashboard');
+      const [selectedVehicle, setSelectedVehicle] = useState(null);
+      const [tasks, setTasks] = useState([]);
 
       useEffect(() => {
         fetchVehicles();
+        fetchTasks();
       }, []);
 
       const fetchVehicles = async () => {
@@ -136,12 +140,305 @@
           setLoading(false);
         }
       };
+      
+      const fetchTasks = async () => {
+        try {
+          const res = await fetch(`${API_URL}/tasks`);
+          const data = await res.json();
+          if (data.success) {
+            setTasks(data.data);
+          }
+        } catch (err) {
+          console.error('Error loading tasks:', err);
+        }
+      };
 
       const stats = {
         total: vehicles.length,
         active: vehicles.filter(v => v.status === 'active').length,
         inspection: vehicles.filter(v => v.status === 'inspection').length
       };
+
+      // Check permissions based on role
+      const hasPermission = (action) => {
+        const permissions = {
+          admin: ['checkin', 'checkout', 'inspection', 'edit', 'delete', 'reports', 'users'],
+          inspector: ['inspection', 'view'],
+          operador: ['checkin', 'checkout', 'view']
+        };
+        
+        return permissions[user.role]?.includes(action) || false;
+      };
+
+      // Render different views based on currentView
+      const renderView = () => {
+        switch(currentView) {
+          case 'profile':
+            return <ProfileView user={user} />;
+          case 'checkin':
+            return hasPermission('checkin') ? <CheckInView onBack={() => setCurrentView('dashboard')} /> : <AccessDenied />;
+          case 'checkout':
+            return hasPermission('checkout') ? <CheckOutView vehicles={vehicles} onBack={() => setCurrentView('dashboard')} /> : <AccessDenied />;
+          case 'inspection':
+            return hasPermission('inspection') ? <InspectionView vehicles={vehicles} onBack={() => setCurrentView('dashboard')} /> : <AccessDenied />;
+          case 'vehicleDetail':
+            return <VehicleDetailView vehicle={selectedVehicle} onBack={() => setCurrentView('dashboard')} canEdit={hasPermission('edit')} />;
+          case 'users':
+            return hasPermission('users') ? <UserManagementView onBack={() => setCurrentView('dashboard')} /> : <AccessDenied />;
+          case 'cms':
+            return user.role === 'admin' ? <CMSView onBack={() => setCurrentView('dashboard')} /> : <AccessDenied />;
+          case 'reports':
+            return hasPermission('reports') ? <ReportsView vehicles={vehicles} onBack={() => setCurrentView('dashboard')} /> : <AccessDenied />;
+          default:
+            return <DashboardView />;
+        }
+      };
+
+      const DashboardView = () => (
+        <>
+          {/* Page Header */}
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold text-gray-800">Panel de Control</h2>
+            <p className="text-gray-600 mt-2">Gestión de inventario vehicular</p>
+          </div>
+          
+          {/* Role-specific welcome message */}
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-blue-800">
+              Bienvenido, <strong>{user.name}</strong> - Rol: <strong className="capitalize">{user.role}</strong>
+            </p>
+            <p className="text-sm text-blue-600 mt-1">
+              {user.role === 'admin' && 'Tienes acceso completo a todas las funciones del sistema.'}
+              {user.role === 'inspector' && 'Puedes realizar inspecciones y ver el inventario de vehículos.'}
+              {user.role === 'operador' && 'Puedes registrar entradas y salidas de vehículos.'}
+            </p>
+          </div>
+
+          {/* Tasks Section - Only for inspector and admin */}
+          {(user.role === 'inspector' || user.role === 'admin') && tasks.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold mb-4 text-gray-800">Tareas Pendientes</h3>
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <div className="space-y-3">
+                  {tasks.filter(t => t.status === 'pending' && (user.role === 'admin' || t.assignedTo === user.name)).map(task => (
+                    <div key={task.id} className="flex items-center justify-between p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <div>
+                        <p className="font-medium text-gray-800">{task.type === 'inspection' ? 'Inspección Pendiente' : task.type}</p>
+                        <p className="text-sm text-gray-600">{task.vehicle}</p>
+                        <p className="text-xs text-gray-500">Asignado a: {task.assignedTo}</p>
+                      </div>
+                      {hasPermission('inspection') && (
+                        <button 
+                          onClick={() => {
+                            const vehicle = vehicles.find(v => v.id === task.vehicleId);
+                            if (vehicle) {
+                              setSelectedVehicle(vehicle);
+                              setCurrentView('inspection');
+                            }
+                          }}
+                          className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition"
+                        >
+                          Realizar Inspección
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {tasks.filter(t => t.status === 'pending' && (user.role === 'admin' || t.assignedTo === user.name)).length === 0 && (
+                    <p className="text-gray-500 text-center py-4">No hay tareas pendientes</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            {hasPermission('checkin') && (
+              <button
+                onClick={() => setCurrentView('checkin')}
+                className="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-700 transition flex flex-col items-center space-y-2"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                <span className="font-semibold">Check-In</span>
+              </button>
+            )}
+            
+            {hasPermission('checkout') && (
+              <button
+                onClick={() => setCurrentView('checkout')}
+                className="bg-green-600 text-white p-4 rounded-xl hover:bg-green-700 transition flex flex-col items-center space-y-2"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                <span className="font-semibold">Check-Out</span>
+              </button>
+            )}
+            
+            {hasPermission('inspection') && (
+              <button
+                onClick={() => setCurrentView('inspection')}
+                className="bg-yellow-600 text-white p-4 rounded-xl hover:bg-yellow-700 transition flex flex-col items-center space-y-2"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                </svg>
+                <span className="font-semibold">Inspección</span>
+              </button>
+            )}
+            
+            {hasPermission('reports') && (
+              <button
+                onClick={() => setCurrentView('reports')}
+                className="bg-purple-600 text-white p-4 rounded-xl hover:bg-purple-700 transition flex flex-col items-center space-y-2"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                <span className="font-semibold">Reportes</span>
+              </button>
+            )}
+            
+            {hasPermission('users') && (
+              <button
+                onClick={() => setCurrentView('users')}
+                className="bg-indigo-600 text-white p-4 rounded-xl hover:bg-indigo-700 transition flex flex-col items-center space-y-2"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                </svg>
+                <span className="font-semibold">Usuarios</span>
+              </button>
+            )}
+            
+            {user.role === 'admin' && (
+              <button
+                onClick={() => setCurrentView('cms')}
+                className="bg-gray-800 text-white p-4 rounded-xl hover:bg-gray-900 transition flex flex-col items-center space-y-2"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                <span className="font-semibold">CMS</span>
+              </button>
+            )}
+          </div>
+          
+          {/* Download Template Button */}
+          <div className="mb-8">
+            <button
+              onClick={() => window.open('/api/checklist-template', '_blank')}
+              className="bg-gray-600 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition flex items-center space-x-2 mx-auto"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              <span>Descargar Plantilla Checklist (PDF)</span>
+            </button>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Total Vehículos</p>
+                  <p className="text-3xl font-bold text-gray-800 mt-1">{stats.total}</p>
+                </div>
+                <div className="bg-blue-100 p-3 rounded-lg">
+                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">Activos</p>
+                  <p className="text-3xl font-bold text-green-600 mt-1">{stats.active}</p>
+                </div>
+                <div className="bg-green-100 p-3 rounded-lg">
+                  <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-500 text-sm">En Inspección</p>
+                  <p className="text-3xl font-bold text-yellow-600 mt-1">{stats.inspection}</p>
+                </div>
+                <div className="bg-yellow-100 p-3 rounded-lg">
+                  <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Vehicles Grid */}
+          <div>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4">Vehículos Registrados</h3>
+            
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {vehicles.map(vehicle => (
+                  <div key={vehicle.id} className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
+                    <div className="h-48 bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden">
+                      {vehicle.image ? (
+                        <img src={vehicle.image} alt={vehicle.plate} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          <svg className="w-24 h-24 text-white opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM15 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"></path>
+                            <path d="M3 4a1 1 0 00-1 1v10a1 1 0 001 1h1.05a2.5 2.5 0 014.9 0H10a1 1 0 001-1V5a1 1 0 00-1-1H3zM14 7a1 1 0 00-1 1v6.05A2.5 2.5 0 0115.95 16H17a1 1 0 001-1v-5a1 1 0 00-.293-.707l-2-2A1 1 0 0015 7h-1z"></path>
+                          </svg>
+                        </div>
+                      )}
+                      <div className="absolute top-4 right-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                          vehicle.status === 'active' 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {vehicle.status === 'active' ? 'Activo' : 'En Inspección'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <h4 className="text-2xl font-bold text-gray-800 mb-2">{vehicle.plate}</h4>
+                      <p className="text-gray-600 mb-1">{vehicle.brand} {vehicle.model}</p>
+                      <p className="text-gray-500 text-sm mb-4">Año {vehicle.year} • {vehicle.color}</p>
+                      <button 
+                        onClick={() => {
+                          setSelectedVehicle(vehicle);
+                          setCurrentView('vehicleDetail');
+                        }}
+                        className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 rounded-lg hover:opacity-90 transition"
+                      >
+                        Ver Detalles
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      );
 
       return (
         <div className="min-h-screen bg-gray-50">
@@ -150,14 +447,27 @@
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex justify-between h-16 items-center">
                 <div className="flex items-center space-x-4">
-                  <h1 className="text-2xl font-bold text-gray-800">MACAL</h1>
-                  <span className="text-gray-500">Inventory System</span>
+                  <button 
+                    onClick={() => setCurrentView('dashboard')}
+                    className="text-2xl font-bold text-gray-800 hover:text-blue-600 transition"
+                  >
+                    MACAL
+                  </button>
+                  <span className="text-gray-500">Sistema de Inventario</span>
                 </div>
                 <div className="flex items-center space-x-6">
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-gray-800">{user.name}</p>
-                    <p className="text-xs text-gray-500">{user.role}</p>
-                  </div>
+                  <button
+                    onClick={() => setCurrentView('profile')}
+                    className="flex items-center space-x-2 hover:text-blue-600 transition"
+                  >
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-gray-800">{user.name}</p>
+                      <p className="text-xs text-gray-500">{user.role}</p>
+                    </div>
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                  </button>
                   <button
                     onClick={onLogout}
                     className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition"
@@ -171,104 +481,1541 @@
 
           {/* Main Content */}
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {/* Page Header */}
-            <div className="mb-8">
-              <h2 className="text-3xl font-bold text-gray-800">Panel de Control</h2>
-              <p className="text-gray-600 mt-2">Gestión de inventario vehicular</p>
-            </div>
+            {renderView()}
+          </main>
+        </div>
+      );
+    }
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-500 text-sm">Total Vehículos</p>
-                    <p className="text-3xl font-bold text-gray-800 mt-1">{stats.total}</p>
-                  </div>
-                  <div className="bg-blue-100 p-3 rounded-lg">
-                    <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
-                    </svg>
-                  </div>
-                </div>
+    // Profile View Component
+    function ProfileView({ user }) {
+      return (
+        <div className="max-w-2xl mx-auto">
+          <h2 className="text-2xl font-bold mb-6">Mi Perfil</h2>
+          <div className="bg-white rounded-xl shadow-sm p-8">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-500">Nombre</label>
+                <p className="mt-1 text-lg font-semibold">{user.name}</p>
               </div>
-
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-500 text-sm">Activos</p>
-                    <p className="text-3xl font-bold text-green-600 mt-1">{stats.active}</p>
-                  </div>
-                  <div className="bg-green-100 p-3 rounded-lg">
-                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                    </svg>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-500">Email</label>
+                <p className="mt-1 text-lg">{user.email}</p>
               </div>
-
-              <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-gray-500 text-sm">En Inspección</p>
-                    <p className="text-3xl font-bold text-yellow-600 mt-1">{stats.inspection}</p>
-                  </div>
-                  <div className="bg-yellow-100 p-3 rounded-lg">
-                    <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-500">Rol</label>
+                <p className="mt-1 text-lg capitalize">{user.role}</p>
               </div>
-            </div>
-
-            {/* Vehicles Grid */}
-            <div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-4">Vehículos Registrados</h3>
-              
-              {loading ? (
-                <div className="text-center py-12">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {vehicles.map(vehicle => (
-                    <div key={vehicle.id} className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
-                      <div className="h-48 bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden">
-                        {vehicle.image ? (
-                          <img src={vehicle.image} alt={vehicle.plate} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="flex items-center justify-center h-full">
-                            <svg className="w-24 h-24 text-white opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM15 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"></path>
-                              <path d="M3 4a1 1 0 00-1 1v10a1 1 0 001 1h1.05a2.5 2.5 0 014.9 0H10a1 1 0 001-1V5a1 1 0 00-1-1H3zM14 7a1 1 0 00-1 1v6.05A2.5 2.5 0 0115.95 16H17a1 1 0 001-1v-5a1 1 0 00-.293-.707l-2-2A1 1 0 0015 7h-1z"></path>
-                            </svg>
-                          </div>
-                        )}
-                        <div className="absolute top-4 right-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            vehicle.status === 'active' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {vehicle.status === 'active' ? 'Activo' : 'En Inspección'}
-                          </span>
-                        </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-500">Permisos</label>
+                <div className="mt-2 space-y-2">
+                  {user.role === 'admin' && (
+                    <>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Acceso completo al sistema</span>
                       </div>
-                      <div className="p-6">
-                        <h4 className="text-2xl font-bold text-gray-800 mb-2">{vehicle.plate}</h4>
-                        <p className="text-gray-600 mb-1">{vehicle.brand} {vehicle.model}</p>
-                        <p className="text-gray-500 text-sm mb-4">Año {vehicle.year} • {vehicle.color}</p>
-                        <button className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 rounded-lg hover:opacity-90 transition">
-                          Ver Detalles
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Gestión de usuarios</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Configuración del sistema</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Reportes y estadísticas</span>
+                      </div>
+                    </>
+                  )}
+                  {user.role === 'inspector' && (
+                    <>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Realizar inspecciones</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Ver inventario de vehículos</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        <span className="text-gray-400">Check-in / Check-out</span>
+                      </div>
+                    </>
+                  )}
+                  {user.role === 'operador' && (
+                    <>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Check-in de vehículos</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Check-out de vehículos</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span>Ver inventario</span>
+                      </div>
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        <span className="text-gray-400">Inspecciones</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // CheckIn View Component
+    function CheckInView({ onBack }) {
+      const [formData, setFormData] = useState({
+        plate: '',
+        brand: '',
+        model: '',
+        year: new Date().getFullYear(),
+        color: '',
+        owner: '',
+        ownerPhone: '',
+        ownerEmail: '',
+        reason: '',
+        notes: ''
+      });
+      const [photos, setPhotos] = useState([]);
+      const [isCapturing, setIsCapturing] = useState(false);
+      const [activeCategory, setActiveCategory] = useState('frontal');
+
+      const photoCategories = [
+        { id: 'frontal', name: 'Frontal', icon: '🚗' },
+        { id: 'trasera', name: 'Trasera', icon: '🚙' },
+        { id: 'lateral-izq', name: 'Lateral Izquierdo', icon: '⬅️' },
+        { id: 'lateral-der', name: 'Lateral Derecho', icon: '➡️' },
+        { id: 'interior', name: 'Interior', icon: '🪑' },
+        { id: 'tablero', name: 'Tablero', icon: '🎛️' },
+        { id: 'motor', name: 'Motor', icon: '⚙️' },
+        { id: 'llantas', name: 'Llantas', icon: '⭕' },
+        { id: 'danos', name: 'Daños/Detalles', icon: '⚠️' },
+        { id: 'documentos', name: 'Documentos', icon: '📄' }
+      ];
+
+      const handlePhotoCapture = (e) => {
+        const files = Array.from(e.target.files);
+        files.forEach(file => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const newPhoto = {
+              id: Date.now() + Math.random(),
+              category: activeCategory,
+              categoryName: photoCategories.find(c => c.id === activeCategory)?.name,
+              url: event.target.result,
+              timestamp: new Date().toISOString(),
+              file: file
+            };
+            setPhotos(prev => [...prev, newPhoto]);
+          };
+          reader.readAsDataURL(file);
+        });
+      };
+
+      const removePhoto = (photoId) => {
+        setPhotos(prev => prev.filter(p => p.id !== photoId));
+      };
+
+      const getPhotosByCategory = (categoryId) => {
+        return photos.filter(p => p.category === categoryId);
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (photos.length === 0) {
+          alert('Debe tomar al menos una foto del vehículo');
+          return;
+        }
+
+        try {
+          const vehicleData = {
+            ...formData,
+            photos: photos.map(p => ({
+              category: p.category,
+              categoryName: p.categoryName,
+              url: p.url,
+              timestamp: p.timestamp
+            }))
+          };
+
+          const res = await fetch(`${API_URL}/vehicles/checkin`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify(vehicleData)
+          });
+          
+          if (res.ok) {
+            const result = await res.json();
+            alert(`Vehículo registrado exitosamente con ${photos.length} fotos`);
+            
+            // Show PDF download option
+            if (result.pdfUrl) {
+              const downloadPDF = confirm('¿Desea descargar el PDF del checklist de ingreso?');
+              if (downloadPDF) {
+                window.open(result.pdfUrl, '_blank');
+              }
+            }
+            
+            onBack();
+          }
+        } catch (err) {
+          alert('Error al registrar vehículo');
+        }
+      };
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <h2 className="text-2xl font-bold mb-6">Check-In de Vehículo</h2>
+          
+          <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Información del Vehículo</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Patente *</label>
+                    <input
+                      type="text"
+                      value={formData.plate}
+                      onChange={(e) => setFormData({...formData, plate: e.target.value.toUpperCase()})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Marca *</label>
+                    <input
+                      type="text"
+                      value={formData.brand}
+                      onChange={(e) => setFormData({...formData, brand: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Modelo *</label>
+                    <input
+                      type="text"
+                      value={formData.model}
+                      onChange={(e) => setFormData({...formData, model: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Año</label>
+                    <input
+                      type="number"
+                      value={formData.year}
+                      onChange={(e) => setFormData({...formData, year: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      min="1900"
+                      max={new Date().getFullYear() + 1}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                    <input
+                      type="text"
+                      value={formData.color}
+                      onChange={(e) => setFormData({...formData, color: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Información del Propietario</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+                    <input
+                      type="text"
+                      value={formData.owner}
+                      onChange={(e) => setFormData({...formData, owner: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+                    <input
+                      type="tel"
+                      value={formData.ownerPhone}
+                      onChange={(e) => setFormData({...formData, ownerPhone: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={formData.ownerEmail}
+                      onChange={(e) => setFormData({...formData, ownerEmail: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Motivo de ingreso</label>
+                    <select
+                      value={formData.reason}
+                      onChange={(e) => setFormData({...formData, reason: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Seleccionar...</option>
+                      <option value="maintenance">Mantenimiento</option>
+                      <option value="repair">Reparación</option>
+                      <option value="inspection">Inspección</option>
+                      <option value="storage">Almacenamiento</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                rows="3"
+              ></textarea>
+            </div>
+            
+            {/* Photo Section */}
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold mb-4">Fotografías del Vehículo *</h3>
+              <p className="text-sm text-gray-600 mb-4">Tome fotos de todas las partes del vehículo para documentar su estado al momento del ingreso</p>
+              
+              {/* Category Tabs */}
+              <div className="mb-6">
+                <div className="flex flex-wrap gap-2">
+                  {photoCategories.map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setActiveCategory(cat.id)}
+                      className={`px-4 py-2 rounded-lg flex items-center space-x-2 transition ${
+                        activeCategory === cat.id 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      <span className="text-lg">{cat.icon}</span>
+                      <span className="text-sm font-medium">{cat.name}</span>
+                      {getPhotosByCategory(cat.id).length > 0 && (
+                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${
+                          activeCategory === cat.id ? 'bg-blue-500' : 'bg-blue-600 text-white'
+                        }`}>
+                          {getPhotosByCategory(cat.id).length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Photo Upload Area */}
+              <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <input
+                  type="file"
+                  id="photo-upload"
+                  accept="image/*"
+                  multiple
+                  capture="environment"
+                  onChange={handlePhotoCapture}
+                  className="hidden"
+                />
+                <label htmlFor="photo-upload" className="cursor-pointer">
+                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                  </svg>
+                  <p className="mt-2 text-sm text-gray-600">
+                    <span className="font-medium text-blue-600 hover:text-blue-500">
+                      Tomar o seleccionar fotos
+                    </span>
+                    {' '}para categoría: <strong>{photoCategories.find(c => c.id === activeCategory)?.name}</strong>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">Se pueden seleccionar múltiples fotos</p>
+                </label>
+              </div>
+              
+              {/* Photo Gallery */}
+              {photos.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-medium mb-3">Fotos capturadas ({photos.length} total)</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {photos.map(photo => (
+                      <div key={photo.id} className="relative group">
+                        <img 
+                          src={photo.url} 
+                          alt={`${photo.categoryName}`}
+                          className="w-full h-32 object-cover rounded-lg"
+                        />
+                        <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={() => removePhoto(photo.id)}
+                            className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1 truncate">{photo.categoryName}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Photo Summary */}
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">Resumen de Fotos</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                  {photoCategories.map(cat => {
+                    const count = getPhotosByCategory(cat.id).length;
+                    return (
+                      <div key={cat.id} className="flex items-center space-x-2">
+                        <span>{cat.icon}</span>
+                        <span className={count > 0 ? 'text-green-700 font-medium' : 'text-gray-500'}>
+                          {cat.name}: {count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-8 flex justify-end space-x-4">
+              <button
+                type="button"
+                onClick={onBack}
+                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Registrar Vehículo
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    // CheckOut View Component
+    function CheckOutView({ vehicles, onBack }) {
+      const [selectedVehicle, setSelectedVehicle] = useState('');
+      const [notes, setNotes] = useState('');
+      
+      const activeVehicles = vehicles.filter(v => v.status === 'active');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch(`${API_URL}/vehicles/${selectedVehicle}/checkout`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ notes })
+          });
+          
+          if (res.ok) {
+            alert('Check-out realizado exitosamente');
+            onBack();
+          }
+        } catch (err) {
+          alert('Error al realizar check-out');
+        }
+      };
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <h2 className="text-2xl font-bold mb-6">Check-Out de Vehículo</h2>
+          
+          <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-8 max-w-2xl">
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar Vehículo *</label>
+                <select
+                  value={selectedVehicle}
+                  onChange={(e) => setSelectedVehicle(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Seleccionar...</option>
+                  {activeVehicles.map(vehicle => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.plate} - {vehicle.brand} {vehicle.model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notas de salida</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  rows="4"
+                  placeholder="Estado del vehículo, observaciones..."
+                ></textarea>
+              </div>
+              
+              <div className="flex justify-end space-x-4">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  Confirmar Salida
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    // Inspection View Component
+    function InspectionView({ vehicles, onBack }) {
+      const [selectedVehicle, setSelectedVehicle] = useState('');
+      const [inspection, setInspection] = useState({
+        exterior: { condition: '', notes: '' },
+        interior: { condition: '', notes: '' },
+        engine: { condition: '', notes: '' },
+        tires: { condition: '', notes: '' },
+        lights: { working: false, notes: '' },
+        fluids: { levels: '', notes: '' }
+      });
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch(`${API_URL}/vehicles/${selectedVehicle}/inspection`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify(inspection)
+          });
+          
+          if (res.ok) {
+            alert('Inspección registrada exitosamente');
+            onBack();
+          }
+        } catch (err) {
+          alert('Error al registrar inspección');
+        }
+      };
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <h2 className="text-2xl font-bold mb-6">Inspección de Vehículo</h2>
+          
+          <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-8">
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Vehículo a inspeccionar *</label>
+              <select
+                value={selectedVehicle}
+                onChange={(e) => setSelectedVehicle(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                required
+              >
+                <option value="">Seleccionar...</option>
+                {vehicles.map(vehicle => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicle.plate} - {vehicle.brand} {vehicle.model}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Exterior */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Exterior</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Condición</label>
+                  <select
+                    value={inspection.exterior.condition}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      exterior: { ...inspection.exterior, condition: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="excellent">Excelente</option>
+                    <option value="good">Bueno</option>
+                    <option value="regular">Regular</option>
+                    <option value="poor">Malo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                  <textarea
+                    value={inspection.exterior.notes}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      exterior: { ...inspection.exterior, notes: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    rows="2"
+                  ></textarea>
+                </div>
+              </div>
+
+              {/* Interior */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Interior</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Condición</label>
+                  <select
+                    value={inspection.interior.condition}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      interior: { ...inspection.interior, condition: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="excellent">Excelente</option>
+                    <option value="good">Bueno</option>
+                    <option value="regular">Regular</option>
+                    <option value="poor">Malo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                  <textarea
+                    value={inspection.interior.notes}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      interior: { ...inspection.interior, notes: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    rows="2"
+                  ></textarea>
+                </div>
+              </div>
+
+              {/* Motor */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Motor</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Condición</label>
+                  <select
+                    value={inspection.engine.condition}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      engine: { ...inspection.engine, condition: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="excellent">Excelente</option>
+                    <option value="good">Bueno</option>
+                    <option value="regular">Regular</option>
+                    <option value="poor">Malo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                  <textarea
+                    value={inspection.engine.notes}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      engine: { ...inspection.engine, notes: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    rows="2"
+                  ></textarea>
+                </div>
+              </div>
+
+              {/* Neumáticos */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-lg">Neumáticos</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Condición</label>
+                  <select
+                    value={inspection.tires.condition}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      tires: { ...inspection.tires, condition: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="excellent">Excelente</option>
+                    <option value="good">Bueno</option>
+                    <option value="regular">Regular</option>
+                    <option value="poor">Malo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+                  <textarea
+                    value={inspection.tires.notes}
+                    onChange={(e) => setInspection({
+                      ...inspection,
+                      tires: { ...inspection.tires, notes: e.target.value }
+                    })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    rows="2"
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 flex justify-end space-x-4">
+              <button
+                type="button"
+                onClick={onBack}
+                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
+              >
+                Guardar Inspección
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    // Access Denied Component
+    function AccessDenied() {
+      return (
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="text-center">
+            <svg className="w-24 h-24 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Acceso Denegado</h2>
+            <p className="text-gray-600 mb-4">No tienes permisos para acceder a esta sección</p>
+            <button 
+              onClick={() => window.history.back()}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Volver
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // User Management View
+    function UserManagementView({ onBack }) {
+      const [users, setUsers] = useState([
+        { id: 1, email: 'admin@macal.cl', name: 'Administrador', role: 'admin', status: 'active' },
+        { id: 2, email: 'inspector@macal.cl', name: 'Inspector García', role: 'inspector', status: 'active' },
+        { id: 3, email: 'operador@macal.cl', name: 'Operador Pérez', role: 'operador', status: 'active' }
+      ]);
+      const [showAddUser, setShowAddUser] = useState(false);
+      const [newUser, setNewUser] = useState({ email: '', name: '', role: 'operador', password: '' });
+
+      const handleAddUser = (e) => {
+        e.preventDefault();
+        const user = {
+          id: users.length + 1,
+          ...newUser,
+          status: 'active'
+        };
+        setUsers([...users, user]);
+        setShowAddUser(false);
+        setNewUser({ email: '', name: '', role: 'operador', password: '' });
+        alert('Usuario creado exitosamente');
+      };
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold">Gestión de Usuarios</h2>
+            <button
+              onClick={() => setShowAddUser(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+              </svg>
+              Nuevo Usuario
+            </button>
+          </div>
+
+          {showAddUser && (
+            <div className="mb-6 bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold mb-4">Crear Nuevo Usuario</h3>
+              <form onSubmit={handleAddUser} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={newUser.email}
+                      onChange={(e) => setNewUser({...newUser, email: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+                    <input
+                      type="text"
+                      value={newUser.name}
+                      onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+                    <select
+                      value={newUser.role}
+                      onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="operador">Operador</option>
+                      <option value="inspector">Inspector</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña</label>
+                    <input
+                      type="password"
+                      value={newUser.password}
+                      onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUser(false)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Crear Usuario
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rol</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {users.map(user => (
+                  <tr key={user.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        user.role === 'admin' ? 'bg-purple-100 text-purple-800' :
+                        user.role === 'inspector' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                        {user.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                      <button className="text-indigo-600 hover:text-indigo-900">Editar</button>
+                      <button className="text-red-600 hover:text-red-900">Desactivar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // CMS View for Admin
+    function CMSView({ onBack }) {
+      const [activeTab, setActiveTab] = useState('settings');
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <h2 className="text-2xl font-bold mb-6">Panel de Administración</h2>
+          
+          <div className="bg-white rounded-xl shadow-sm">
+            <div className="border-b border-gray-200">
+              <nav className="flex -mb-px">
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`py-2 px-6 border-b-2 font-medium text-sm ${
+                    activeTab === 'settings' 
+                      ? 'border-blue-500 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Configuración General
+                </button>
+                <button
+                  onClick={() => setActiveTab('business')}
+                  className={`py-2 px-6 border-b-2 font-medium text-sm ${
+                    activeTab === 'business' 
+                      ? 'border-blue-500 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Información del Negocio
+                </button>
+                <button
+                  onClick={() => setActiveTab('notifications')}
+                  className={`py-2 px-6 border-b-2 font-medium text-sm ${
+                    activeTab === 'notifications' 
+                      ? 'border-blue-500 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Notificaciones
+                </button>
+                <button
+                  onClick={() => setActiveTab('backup')}
+                  className={`py-2 px-6 border-b-2 font-medium text-sm ${
+                    activeTab === 'backup' 
+                      ? 'border-blue-500 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Respaldos
+                </button>
+              </nav>
+            </div>
+            
+            <div className="p-6">
+              {activeTab === 'settings' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-4">Configuración del Sistema</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Sistema</label>
+                        <input
+                          type="text"
+                          defaultValue="MACAL Inventory System"
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Zona Horaria</label>
+                        <select className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                          <option>America/Santiago</option>
+                          <option>America/New_York</option>
+                          <option>Europe/Madrid</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Idioma</label>
+                        <select className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                          <option>Español</option>
+                          <option>English</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Guardar Cambios
+                  </button>
+                </div>
+              )}
+              
+              {activeTab === 'business' && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold mb-4">Información del Negocio</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la Empresa</label>
+                      <input
+                        type="text"
+                        defaultValue="MACAL"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">RUT</label>
+                      <input
+                        type="text"
+                        defaultValue="76.XXX.XXX-X"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
+                      <input
+                        type="text"
+                        defaultValue="Av. Principal 123"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+                      <input
+                        type="tel"
+                        defaultValue="+56 9 1234 5678"
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Logo de la Empresa</label>
+                      <div className="mt-1 flex items-center">
+                        <div className="w-24 h-24 bg-gray-200 rounded-lg flex items-center justify-center">
+                          <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                          </svg>
+                        </div>
+                        <button className="ml-4 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                          Cambiar Logo
                         </button>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                  <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Actualizar Información
+                  </button>
+                </div>
+              )}
+              
+              {activeTab === 'notifications' && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold mb-4">Configuración de Notificaciones</h3>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Notificaciones por Email</p>
+                        <p className="text-sm text-gray-500">Recibir notificaciones de nuevos vehículos</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" defaultChecked />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Alertas de Inspección</p>
+                        <p className="text-sm text-gray-500">Notificar cuando hay inspecciones pendientes</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" defaultChecked />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">Resumen Diario</p>
+                        <p className="text-sm text-gray-500">Enviar resumen de actividades diarias</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email para Notificaciones</label>
+                    <input
+                      type="email"
+                      defaultValue="admin@macal.cl"
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Guardar Preferencias
+                  </button>
+                </div>
+              )}
+              
+              {activeTab === 'backup' && (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold mb-4">Gestión de Respaldos</h3>
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <p className="text-blue-800 font-medium">Último respaldo: Hace 2 días</p>
+                    <p className="text-blue-600 text-sm">25 de Enero, 2025 - 14:30</p>
+                  </div>
+                  <div className="space-y-4">
+                    <button className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
+                      </svg>
+                      Crear Respaldo Ahora
+                    </button>
+                    <button className="w-full px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-center">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                      </svg>
+                      Restaurar desde Respaldo
+                    </button>
+                  </div>
+                  <div>
+                    <h4 className="font-medium mb-2">Respaldos Automáticos</h4>
+                    <select className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                      <option>Diario</option>
+                      <option>Semanal</option>
+                      <option>Mensual</option>
+                      <option>Desactivado</option>
+                    </select>
+                  </div>
                 </div>
               )}
             </div>
-          </main>
+          </div>
+        </div>
+      );
+    }
+
+    // Reports View
+    function ReportsView({ vehicles, onBack }) {
+      const stats = {
+        totalCheckIns: vehicles.length,
+        totalCheckOuts: 12,
+        pendingInspections: vehicles.filter(v => v.status === 'inspection').length,
+        averageStayTime: '3.5 días'
+      };
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <h2 className="text-2xl font-bold mb-6">Reportes y Estadísticas</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-gray-500">Total Check-Ins</h3>
+                <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{stats.totalCheckIns}</p>
+              <p className="text-sm text-green-600">+15% este mes</p>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-gray-500">Total Check-Outs</h3>
+                <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                </svg>
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{stats.totalCheckOuts}</p>
+              <p className="text-sm text-green-600">+8% este mes</p>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-gray-500">Inspecciones Pendientes</h3>
+                <svg className="w-8 h-8 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{stats.pendingInspections}</p>
+              <p className="text-sm text-yellow-600">Requiere atención</p>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-gray-500">Tiempo Promedio</h3>
+                <svg className="w-8 h-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <p className="text-2xl font-bold text-gray-800">{stats.averageStayTime}</p>
+              <p className="text-sm text-gray-600">Por vehículo</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold mb-4">Actividad Reciente</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Check-In: GFKL-82</p>
+                    <p className="text-sm text-gray-500">Toyota Corolla - Hace 2 horas</p>
+                  </div>
+                  <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">Check-In</span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Inspección: HXRT-93</p>
+                    <p className="text-sm text-gray-500">Nissan Versa - Hace 5 horas</p>
+                  </div>
+                  <span className="px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded-full">Inspección</span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Check-Out: JKLM-45</p>
+                    <p className="text-sm text-gray-500">Chevrolet Sail - Hace 1 día</p>
+                  </div>
+                  <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Check-Out</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold mb-4">Exportar Reportes</h3>
+              <div className="space-y-4">
+                <button className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span>Reporte Mensual</span>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                  </svg>
+                </button>
+                <button className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span>Inventario Actual</span>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                  </svg>
+                </button>
+                <button className="w-full px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center justify-between">
+                  <span>Historial de Inspecciones</span>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Vehicle Detail View Component
+    function VehicleDetailView({ vehicle, onBack, canEdit }) {
+      const [activePhotoCategory, setActivePhotoCategory] = useState('all');
+      
+      if (!vehicle) return null;
+
+      const photoCategories = [
+        { id: 'frontal', name: 'Frontal', icon: '🚗' },
+        { id: 'trasera', name: 'Trasera', icon: '🚙' },
+        { id: 'lateral-izq', name: 'Lateral Izquierdo', icon: '⬅️' },
+        { id: 'lateral-der', name: 'Lateral Derecho', icon: '➡️' },
+        { id: 'interior', name: 'Interior', icon: '🪑' },
+        { id: 'tablero', name: 'Tablero', icon: '🎛️' },
+        { id: 'motor', name: 'Motor', icon: '⚙️' },
+        { id: 'llantas', name: 'Llantas', icon: '⭕' },
+        { id: 'danos', name: 'Daños/Detalles', icon: '⚠️' },
+        { id: 'documentos', name: 'Documentos', icon: '📄' }
+      ];
+
+      const filteredPhotos = vehicle.photos && activePhotoCategory === 'all' 
+        ? vehicle.photos 
+        : vehicle.photos?.filter(p => p.category === activePhotoCategory) || [];
+
+      return (
+        <div>
+          <button onClick={onBack} className="mb-4 text-blue-600 hover:text-blue-800 flex items-center">
+            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            Volver
+          </button>
+          
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="h-64 bg-gradient-to-br from-blue-500 to-purple-600 relative">
+              {vehicle.image ? (
+                <img src={vehicle.image} alt={vehicle.plate} className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <svg className="w-32 h-32 text-white opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM15 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"></path>
+                    <path d="M3 4a1 1 0 00-1 1v10a1 1 0 001 1h1.05a2.5 2.5 0 014.9 0H10a1 1 0 001-1V5a1 1 0 00-1-1H3zM14 7a1 1 0 00-1 1v6.05A2.5 2.5 0 0115.95 16H17a1 1 0 001-1v-5a1 1 0 00-.293-.707l-2-2A1 1 0 0015 7h-1z"></path>
+                  </svg>
+                </div>
+              )}
+              <div className="absolute top-4 right-4">
+                <span className={`px-4 py-2 rounded-full text-sm font-semibold ${
+                  vehicle.status === 'active' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {vehicle.status === 'active' ? 'Activo' : 'En Inspección'}
+                </span>
+              </div>
+            </div>
+            
+            <div className="p-8">
+              <h2 className="text-3xl font-bold mb-6">{vehicle.plate}</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Información del Vehículo</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Marca:</span>
+                      <span className="font-medium">{vehicle.brand}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Modelo:</span>
+                      <span className="font-medium">{vehicle.model}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Año:</span>
+                      <span className="font-medium">{vehicle.year}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Color:</span>
+                      <span className="font-medium">{vehicle.color}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Historial</h3>
+                  <div className="space-y-3">
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <p className="text-sm text-gray-600">Último check-in</p>
+                      <p className="font-medium">Hace 3 días</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <p className="text-sm text-gray-600">Última inspección</p>
+                      <p className="font-medium">Hace 1 semana</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-8 flex flex-wrap gap-3">
+                {vehicle.checkInPDF && (
+                  <button 
+                    onClick={() => window.open(vehicle.checkInPDF, '_blank')}
+                    className="flex-1 bg-purple-600 text-white py-3 px-4 rounded-lg hover:bg-purple-700 transition flex items-center justify-center space-x-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                    </svg>
+                    <span>Ver Checklist PDF</span>
+                  </button>
+                )}
+                <button className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition">
+                  Editar Información
+                </button>
+                <button className="flex-1 bg-yellow-600 text-white py-3 px-4 rounded-lg hover:bg-yellow-700 transition">
+                  Nueva Inspección
+                </button>
+                <button className="flex-1 bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 transition">
+                  Check-Out
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          {/* Photo Gallery Section */}
+          {vehicle.photos && vehicle.photos.length > 0 && (
+            <div className="mt-8 bg-white rounded-xl shadow-sm p-8">
+              <h3 className="text-2xl font-bold mb-6">Galería de Fotos</h3>
+              
+              {/* Photo Category Filter */}
+              <div className="mb-6">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setActivePhotoCategory('all')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      activePhotoCategory === 'all' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                    }`}
+                  >
+                    Todas ({vehicle.photos.length})
+                  </button>
+                  {photoCategories.map(cat => {
+                    const count = vehicle.photos.filter(p => p.category === cat.id).length;
+                    if (count === 0) return null;
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => setActivePhotoCategory(cat.id)}
+                        className={`px-4 py-2 rounded-lg flex items-center space-x-2 transition ${
+                          activePhotoCategory === cat.id 
+                            ? 'bg-blue-600 text-white' 
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                        }`}
+                      >
+                        <span>{cat.icon}</span>
+                        <span>{cat.name} ({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              {/* Photo Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {filteredPhotos.map((photo, index) => (
+                  <div key={index} className="relative group cursor-pointer">
+                    <img 
+                      src={photo.url} 
+                      alt={`${photo.categoryName} - ${vehicle.plate}`}
+                      className="w-full h-48 object-cover rounded-lg"
+                      onClick={() => {
+                        // En una app real, aquí abriríamos un modal con la imagen grande
+                        window.open(photo.url, '_blank');
+                      }}
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-3 rounded-b-lg">
+                      <p className="text-white text-sm font-medium">{photo.categoryName}</p>
+                      <p className="text-white text-xs opacity-75">
+                        {new Date(photo.timestamp).toLocaleDateString('es-CL')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {/* Photo Summary */}
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-2">Resumen de Documentación Fotográfica</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                  {photoCategories.map(cat => {
+                    const count = vehicle.photos.filter(p => p.category === cat.id).length;
+                    return (
+                      <div key={cat.id} className="flex items-center space-x-2">
+                        <span>{cat.icon}</span>
+                        <span className={count > 0 ? 'text-green-700 font-medium' : 'text-gray-400'}>
+                          {cat.name}: {count}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-600 mt-3">
+                  Fecha de ingreso: {new Date(vehicle.checkinDate).toLocaleDateString('es-CL', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
