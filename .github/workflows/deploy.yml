@@ -24,62 +24,104 @@ jobs:
       env:
         INSTANCE_ID: i-09bb7ca5173ff79b1
       run: |
-        # Copy files from final-system
+        # Navigate to final-system directory
         cd $GITHUB_WORKSPACE/macal-inventory-v2/final-system
         
-        # Create deployment package
-        tar -czf /tmp/macal-deploy.tar.gz server.js package.json public/
-        
-        # Create deployment script
-        cat > /tmp/deploy-backend.sh << 'EOF'
+        # Create deployment script with all files embedded
+        cat > /tmp/deploy.sh << 'DEPLOY_SCRIPT'
         #!/bin/bash
-        sudo pkill -f "node" || true
-        sudo pkill -f "macal-backend" || true
+        set -e
         
+        echo "Starting deployment..."
+        
+        # Stop existing services
+        sudo pkill -f node || true
+        pm2 stop all || true
+        pm2 delete all || true
+        
+        # Ensure Node.js 18
+        if ! node --version | grep -q "v18"; then
+            curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+            sudo yum install -y nodejs
+        fi
+        
+        # Install PM2
+        sudo npm install -g pm2
+        
+        # Clean and create directory
         cd /home/ec2-user
         rm -rf macal-inventory
         mkdir -p macal-inventory
         cd macal-inventory
         
-        # The files will be extracted here by the next command
+        # Create package.json
+        cat > package.json << 'EOF'
+        {
+          "name": "macal-inventory",
+          "version": "1.0.0",
+          "main": "server.js",
+          "scripts": {
+            "start": "node server.js"
+          },
+          "dependencies": {
+            "express": "^4.18.2",
+            "cors": "^2.8.5",
+            "pdfkit": "^0.13.0"
+          }
+        }
         EOF
         
-        # First, upload the deployment package
-        UPLOAD_COMMAND=$(cat << 'UPLOAD'
-        cd /home/ec2-user/macal-inventory
-        # Receive base64 encoded tar.gz and decode it
-        echo "DEPLOY_PACKAGE_PLACEHOLDER" | base64 -d > deploy.tar.gz
-        tar -xzf deploy.tar.gz
-        rm deploy.tar.gz
-        
         # Install dependencies
-        npm install --production
+        npm install
         
-        # Install PM2 if not exists
-        if ! command -v pm2 &> /dev/null; then
-          sudo npm install -g pm2
-        fi
+        # Create directories
+        mkdir -p public pdfs
         
-        # Start the application
-        pm2 stop all || true
-        pm2 start server.js --name macal-backend
+        echo "Creating application files..."
+        DEPLOY_SCRIPT
+        
+        # Add server.js
+        echo "" >> /tmp/deploy.sh
+        echo "cat > server.js << 'SERVER_FILE'" >> /tmp/deploy.sh
+        cat server.js >> /tmp/deploy.sh
+        echo "SERVER_FILE" >> /tmp/deploy.sh
+        
+        # Add pdf-generator.js
+        echo "" >> /tmp/deploy.sh
+        echo "cat > pdf-generator.js << 'PDF_FILE'" >> /tmp/deploy.sh
+        cat pdf-generator.js >> /tmp/deploy.sh
+        echo "PDF_FILE" >> /tmp/deploy.sh
+        
+        # Add index.html
+        echo "" >> /tmp/deploy.sh
+        echo "cat > public/index.html << 'INDEX_FILE'" >> /tmp/deploy.sh
+        cat public/index.html >> /tmp/deploy.sh
+        echo "INDEX_FILE" >> /tmp/deploy.sh
+        
+        # Add startup commands
+        cat >> /tmp/deploy.sh << 'STARTUP_SCRIPT'
+        
+        # Set permissions
+        chmod -R 755 /home/ec2-user/macal-inventory
+        
+        # Configure firewall
+        sudo firewall-cmd --permanent --add-port=3001/tcp 2>/dev/null || true
+        sudo firewall-cmd --reload 2>/dev/null || true
+        
+        # Start with PM2
+        pm2 start server.js --name macal-inventory
         pm2 save
-        pm2 startup systemd -u ec2-user --hp /home/ec2-user || true
+        pm2 startup systemd -u ec2-user --hp /home/ec2-user
         
-        echo "Backend deployed successfully!"
-        UPLOAD
-        )
-        
-        # Replace placeholder with actual package
-        DEPLOY_PACKAGE=$(base64 -w 0 < /tmp/macal-deploy.tar.gz)
-        UPLOAD_COMMAND="${UPLOAD_COMMAND//DEPLOY_PACKAGE_PLACEHOLDER/$DEPLOY_PACKAGE}"
+        echo "Deployment complete!"
+        STARTUP_SCRIPT
         
         # Deploy via SSM
         aws ssm send-command \
           --instance-ids "$INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
-          --parameters "commands=[\"$UPLOAD_COMMAND\"]" \
-          --output text
+          --parameters "commands=[\"$(cat /tmp/deploy.sh | base64 -w 0)\"]" \
+          --output json
     
     - name: Show Deployment Info
       run: |
