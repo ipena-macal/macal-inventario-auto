@@ -25,7 +25,7 @@ jobs:
         INSTANCE_ID: i-09bb7ca5173ff79b1
       run: |
         # Navigate to final-system directory
-        cd $GITHUB_WORKSPACE/macal-inventory-v2/final-system
+        cd $GITHUB_WORKSPACE/final-system
         
         # Create deployment script with all files embedded
         cat > /tmp/deploy.sh << 'DEPLOY_SCRIPT'
